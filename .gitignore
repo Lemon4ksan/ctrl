@@ -1,0 +1,24 @@
+# Build & Test Artifacts
+bin/
+.tmp/
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+*.pprof
+*.prof
+*.sarif
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Example and scratch output
+*.json
+*.tmp

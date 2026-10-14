@@ -1,0 +1,58 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gosec
+    - noctx
+  settings:
+    gocritic:
+      disabled-checks:
+        - captLocal
+        - assignOp
+        - elseif
+        - ifElseChain
+        - appendAssign
+        - singleCaseSwitch
+    gosec:
+      excludes:
+        - G104
+        - G115
+        - G103
+        - G204
+        - G602
+        - G404
+        - G306
+        - G301
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1000"
+        - "-ST1003"
+        - "-ST1020"
+        - "-ST1021"
+        - "-ST1022"
+  exclusions:
+    paths:
+      - "scripts/.*"
+      - "examples/.*"
+      - "tests/.*"
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - noctx
+          - gocritic
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
