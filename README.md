@@ -99,8 +99,6 @@ func main() {
 | **`NO_COLOR` & TTY Awareness** | ✗ | ✗ | **✓ (Built-in)** |
 | **Tables, Boxes, Progress Bars** | ✗ | ✗ (needs lipgloss) | **✓ (`tuikit`)** |
 
----
-
 ## Subpackages Overview
 
 ### 1. [`argkit`](argkit) — POSIX Argument & Flag Engine
@@ -120,16 +118,12 @@ func main() {
 - **Sparklines & Trend Graphs (`tuikit.RenderSparkline`)**: Renders inline trend graphs from floating-point sequences (` ▂▃▅▆▇█`).
 - **Badges & Pipeline Steps**: Universal status tags (`BadgePass`, `BadgeFail`, `BadgeWarn`, `BadgeActive`) and numbered pipeline stages (`RenderStep`).
 
----
-
 ## Performance & Zero-Allocation Guarantees
 
 Tested under parallel CPU load:
 - **`VisibleWidth`**: Monospaced width calculation runs without heap allocations.
 - **`Levenshtein` & Typo Suggest**: Uses stack-allocated arrays for strings up to 64 runes, guaranteeing **0 allocs/op** during interactive CLI flag validation.
 - **`LinesSeq`**: Go 1.27 push iterator over string lines without intermediate slice allocations.
-
----
 
 ## Contributing & Development
 
@@ -147,6 +141,6 @@ make lint
 make bench
 ```
 
-## License
+## 📄 License
 
-BSD-3-Clause. Copyright (c) 2026 Lemon4ksan. All rights reserved.
+This project is licensed under the **BSD 3-Clause License**. See the [LICENSE](LICENSE) file for details.

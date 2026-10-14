@@ -1,6 +1,1 @@
 * text=auto eol=lf
-
-# GitHub & GitLab Linguist — Collapse generated code in PR reviews and exclude from stats
-*.gen.go linguist-generated=true
-*_mock.gen.go linguist-generated=true
-*_harness.gen.go linguist-generated=true
