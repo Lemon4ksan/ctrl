@@ -18,7 +18,3 @@ profile.cov
 
 # Test binary, built with `go test -c`
 *.test
-
-# Example and scratch output
-*.json
-*.tmp
