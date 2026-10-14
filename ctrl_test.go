@@ -23,11 +23,16 @@ func TestCtrl_Facade(t *testing.T) {
 	}
 
 	var executed bool
-	cmd := ctrl.NewCommand("test", "test command", "test usage", func(_ context.Context, _ []string, stdout, _ io.Writer) error {
-		executed = true
-		fmt.Fprintln(stdout, "ok")
-		return nil
-	})
+	cmd := ctrl.NewCommand(
+		"test",
+		"test command",
+		"test usage",
+		func(_ context.Context, _ []string, stdout, _ io.Writer) error {
+			executed = true
+			fmt.Fprintln(stdout, "ok")
+			return nil
+		},
+	)
 
 	app := ctrl.NewApp("testapp", ctrl.Version, "unit test CLI", cmd)
 	var stdout, stderr bytes.Buffer

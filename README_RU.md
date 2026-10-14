@@ -9,7 +9,9 @@ _«В терминале задержка и визуальный шум — э�
 [![Go Version](https://img.shields.io/badge/go-1.27%2B-007d9c?logo=go&logoColor=white&style=flat-square)](https://go.dev/)
 [![Go Reference](https://img.shields.io/badge/godoc-reference-007d9c?style=flat-square)](https://pkg.go.dev/github.com/lemon4ksan/ctrl)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square)](LICENSE)
-[![Zero-Dependencies](https://img.shields.io/badge/dependencies-0%20external-brightgreen?style=flat-square)](#архитектура)
+[![Zero-Dependencies](https://img.shields.io/badge/dependencies-0%20external-brightgreen?style=flat-square)](#сравнение-возможностей)
+[![Zero-Alloc](https://img.shields.io/badge/memory-0%20B%2Fop%20%7C%200%20allocs-success?style=flat-square)](#производительность-и-гарантии-памяти)
+[![Ecosystem](https://img.shields.io/badge/ecosystem-foundation-orange?style=flat-square)](https://github.com/lemon4ksan/foundation)
 [![POSIX Semantics](https://img.shields.io/badge/POSIX-Flags%20%26%20Clumping-blueviolet?style=flat-square)](argkit)
 
 **ctrl** — фреймворк командной строки и терминального интерфейса (TUI) для Go с нулевым количеством внешних зависимостей. Предоставляет полноценный POSIX-парсинг флагов (склеивание коротких флагов, прикреплённые значения, перемежающиеся аргументы), маршрутизацию подкоманд с логическими группами, автоопределение возможностей TTY и визуальные компоненты (таблицы, рамки, прогресс-бары, спарклайны, бейджи), реализованные исключительно средствами стандартной библиотеки Go.

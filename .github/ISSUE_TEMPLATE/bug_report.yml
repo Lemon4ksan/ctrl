@@ -1,0 +1,47 @@
+name: "Bug Report"
+description: "File a bug report or CLI argument parsing regression in ctrl"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue in ctrl.
+        Please make sure your report contains sufficient detail for reproduction.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal Go code or CLI arguments to reproduce the issue.
+      render: Go
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior / Error Logs
+      description: Paste any error messages or unexpected terminal output here.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: "OS, terminal emulator, Go version (`go version`)."
+    validations:
+      required: true

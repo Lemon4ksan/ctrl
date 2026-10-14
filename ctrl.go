@@ -40,7 +40,11 @@ func NewApp(name, version, description string, commands ...Command) *App {
 }
 
 // NewCommand creates a functional subcommand adapter.
-func NewCommand(name, synopsis, usage string, run func(ctx context.Context, args []string, stdout, stderr io.Writer) error, aliases ...string) Command {
+func NewCommand(
+	name, synopsis, usage string,
+	run func(ctx context.Context, args []string, stdout, stderr io.Writer) error,
+	aliases ...string,
+) Command {
 	return &tuikit.FuncCommand{
 		CmdName:     name,
 		CmdAliases:  aliases,
@@ -70,3 +74,32 @@ func NewBox(title string, innerWidth int) *Box {
 func NewProgress(opts ...tuikit.ProgressOption) *Progress {
 	return tuikit.NewProgress(opts...)
 }
+
+// Styling and badge re-exports for rapid zero-dependency console formatting.
+var (
+	Bold      = tuikit.Bold
+	Dim       = tuikit.Dim
+	Italic    = tuikit.Italic
+	Underline = tuikit.Underline
+	Red       = tuikit.Red
+	Green     = tuikit.Green
+	Yellow    = tuikit.Yellow
+	Blue      = tuikit.Blue
+	Magenta   = tuikit.Magenta
+	Cyan      = tuikit.Cyan
+	Gray      = tuikit.Gray
+	White     = tuikit.White
+
+	BadgePass   = tuikit.BadgePass
+	BadgePassed = tuikit.BadgePassed
+	BadgeWarn   = tuikit.BadgeWarn
+	BadgeFail   = tuikit.BadgeFail
+	BadgeInfo   = tuikit.BadgeInfo
+	BadgeActive = tuikit.BadgeActive
+	BadgeSync   = tuikit.BadgeSync
+
+	StripANSI    = tuikit.StripANSI
+	VisibleWidth = tuikit.VisibleWidth
+	RenderStep   = tuikit.RenderStep
+	RenderBar    = tuikit.RenderBar
+)

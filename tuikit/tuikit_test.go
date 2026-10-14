@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/lemon4ksan/foundation/testing/assert"
+
 	"github.com/lemon4ksan/ctrl/tuikit"
 )
 

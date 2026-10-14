@@ -2,6 +2,34 @@ version: "2"
 
 run:
   timeout: 5m
+  modules-download-mode: readonly
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+    - golines
+
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/lemon4ksan/ctrl)
+
+    gofumpt:
+      module-path: github.com/lemon4ksan/ctrl
+      extra:
+        group-params: true
+
+    goimports:
+      local-prefixes:
+        - github.com/lemon4ksan/ctrl
+
+    golines:
+      max-len: 120
 
 linters:
   enable:
@@ -10,49 +38,67 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    - gocritic
-    - gosec
+    - revive
+    - bodyclose
+    - nilerr
     - noctx
+    - errorlint
+    - protogetter
+    - gocritic
+    - prealloc
+    - perfsprint
+    - gosec
+
   settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+
     gocritic:
       disabled-checks:
         - captLocal
-        - assignOp
         - elseif
         - ifElseChain
-        - appendAssign
-        - singleCaseSwitch
-    gosec:
-      excludes:
-        - G104
-        - G115
-        - G103
-        - G204
-        - G602
-        - G404
-        - G306
-        - G301
-    staticcheck:
-      checks:
-        - "all"
-        - "-ST1000"
-        - "-ST1003"
-        - "-ST1020"
-        - "-ST1021"
-        - "-ST1022"
-  exclusions:
-    paths:
-      - "scripts/.*"
-      - "examples/.*"
-      - "tests/.*"
-    rules:
-      - path: _test\.go
-        linters:
-          - gosec
-          - errcheck
-          - noctx
-          - gocritic
+        - unlambda
 
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      - linters: [errcheck, revive, staticcheck, protogetter]
+        path: .*(pb\.go|generated\.go)
+
+      - linters: [errcheck]
+        text: "Error return value of `(fmt\\.Fprint|fmt\\.Fprintf|fmt\\.Fprintln|w\\.Write)` is not checked"
+
+      - linters: [gosec]
+        text: "G103:"
+
+      - linters: [gosec]
+        text: "G104:"
+
+      - linters: [gosec]
+        text: "G404:"
+
+      - linters: [gosec]
+        text: "G115:"
+
+      - linters: [gosec]
+        text: "G407:"
+
+      - linters: [gosec]
+        text: "G306:|G301:"
+
+      - linters: [revive]
+        path: "_test\\.go"
+        text: "exported: (exported|comment on exported)"
+
+      - linters: [gosec, noctx, bodyclose, errcheck, prealloc, staticcheck, errorlint, gocritic, unused, perfsprint, ineffassign]
+        path: "_test\\.go"
+
+      - linters: [gosec]
+        text: "G703:|G706:"
+        path: "(cmd|scripts|tools)[/\\\\].*"
