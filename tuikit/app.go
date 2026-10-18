@@ -22,6 +22,13 @@ type CommandGroup struct {
 	Commands []string
 }
 
+// HelpSection represents a custom documentation block rendered in the help screen
+// (e.g., built-in profiles, environment variables, or security modes).
+type HelpSection struct {
+	Title string
+	Lines []string
+}
+
 // App manages the lifecycle, subcommand routing, help formatting, and execution of CLI tools.
 type App struct {
 	Name          string
@@ -29,8 +36,10 @@ type App struct {
 	Description   string
 	Commands      []Command
 	CommandGroups []CommandGroup
+	HelpSections  []HelpSection
 	Examples      []string
 	DefaultCmd    Command
+	Stdin         io.Reader
 	Stdout        io.Writer
 	Stderr        io.Writer
 	cmdMap        map[string]Command
@@ -43,6 +52,7 @@ func NewApp(name, version, description string, commands ...Command) *App {
 		Version:     version,
 		Description: description,
 		cmdMap:      make(map[string]Command),
+		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 	}
@@ -125,6 +135,9 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	// Direct match against registered command or alias
 	if cmd, ok := a.cmdMap[first]; ok {
 		for _, arg := range args[1:] {
+			if arg == "--" {
+				break
+			}
 			if arg == "-h" || arg == "--help" {
 				fmt.Fprintf(stdout, "%s — %s\n\nUsage:\n  %s\n", cmd.Name(), cmd.Synopsis(), cmd.Usage())
 				return nil
@@ -221,6 +234,16 @@ func (a *App) PrintUsage(w io.Writer) {
 		for _, cmd := range sortedCmds {
 			d := cmdDisplay(cmd)
 			fmt.Fprintf(w, "  %-*s  %s\n", maxLen, d, cmd.Synopsis())
+		}
+		fmt.Fprintln(w)
+	}
+
+	for _, sec := range a.HelpSections {
+		if sec.Title != "" {
+			fmt.Fprintf(w, "%s:\n", sec.Title)
+		}
+		for _, line := range sec.Lines {
+			fmt.Fprintf(w, "  %s\n", line)
 		}
 		fmt.Fprintln(w)
 	}

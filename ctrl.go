@@ -25,6 +25,15 @@ type FuncCommand = tuikit.FuncCommand
 // CommandGroup organizes subcommands under logical sections in help listings.
 type CommandGroup = tuikit.CommandGroup
 
+// HelpSection represents a custom documentation block rendered in the help screen.
+type HelpSection = tuikit.HelpSection
+
+// HubCommand routes nested subcommands with an optional default subcommand fallback.
+type HubCommand = tuikit.HubCommand
+
+// StringSliceFlag implements [flag.Value] for multi-valued command line arguments.
+type StringSliceFlag = argkit.StringSliceFlag
+
 // Table manages columnar data formatting with guaranteed alignment.
 type Table = tuikit.Table
 
@@ -54,6 +63,11 @@ func NewCommand(
 	}
 }
 
+// NewHubCommand creates a nested subcommand router.
+func NewHubCommand(name, synopsis, usage, defaultSubcmd string, subcommands ...Command) *HubCommand {
+	return tuikit.NewHubCommand(name, synopsis, usage, defaultSubcmd, subcommands...)
+}
+
 // ParseInterspersedFlags parses a [flag.FlagSet] correctly with full POSIX semantics:
 // clumping (-la), attached values (-I*.tmp), interspersed arguments, and typo suggestions.
 func ParseInterspersedFlags(fs *flag.FlagSet, args []string) ([]string, error) {
@@ -75,7 +89,7 @@ func NewProgress(opts ...tuikit.ProgressOption) *Progress {
 	return tuikit.NewProgress(opts...)
 }
 
-// Styling and badge re-exports for rapid zero-dependency console formatting.
+// Styling, badge, and flag binding re-exports for rapid zero-dependency console formatting.
 var (
 	Bold      = tuikit.Bold
 	Dim       = tuikit.Dim
@@ -102,4 +116,11 @@ var (
 	VisibleWidth = tuikit.VisibleWidth
 	RenderStep   = tuikit.RenderStep
 	RenderBar    = tuikit.RenderBar
+
+	StringVar   = argkit.StringVar
+	BoolVar     = argkit.BoolVar
+	IntVar      = argkit.IntVar
+	Int64Var    = argkit.Int64Var
+	Float64Var  = argkit.Float64Var
+	DurationVar = argkit.DurationVar
 )

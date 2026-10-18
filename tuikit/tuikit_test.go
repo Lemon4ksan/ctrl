@@ -110,6 +110,12 @@ func TestTUI_App(t *testing.T) {
 	}
 
 	stdout.Reset()
+	app.HelpSections = []tuikit.HelpSection{
+		{
+			Title: "Built-in Profiles",
+			Lines: []string{"ghost-worktree   Default CoW worktree"},
+		},
+	}
 	app.PrintUsage(&stdout)
 	usage := stdout.String()
 	if !strings.Contains(usage, "testapp 1.0.0 — Test Description") {
@@ -118,12 +124,74 @@ func TestTUI_App(t *testing.T) {
 	if !strings.Contains(usage, "ping") || !strings.Contains(usage, "Test ping command") {
 		t.Errorf("expected command listing in usage: %q", usage)
 	}
+	if !strings.Contains(usage, "Built-in Profiles:") || !strings.Contains(usage, "ghost-worktree") {
+		t.Errorf("expected HelpSections in usage: %q", usage)
+	}
 	if strings.Contains(usage, "COMMAND") && strings.Contains(usage, "SYNOPSIS") {
 		t.Errorf("usage should not contain ASCII table headers: %q", usage)
 	}
 	if strings.Contains(usage, "────") {
 		t.Errorf("usage should not contain ASCII table divider lines: %q", usage)
 	}
+}
+
+func TestTUI_App_DoubleDashPassThroughAndHubCommand(t *testing.T) {
+	var capturedExecArgs []string
+	execCmd := &tuikit.FuncCommand{
+		CmdName:     "exec",
+		CmdSynopsis: "Run command in guest",
+		CmdUsage:    "stss exec -- <command>",
+		CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+			capturedExecArgs = args
+			return nil
+		},
+	}
+
+	hub := tuikit.NewHubCommand(
+		"net",
+		"Manage network killswitch",
+		"stss net [status|enable|disable]",
+		"status",
+		&tuikit.FuncCommand{
+			CmdName:     "status",
+			CmdSynopsis: "Show status",
+			CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+				fmt.Fprintf(stdout, "NET_STATUS:%v\n", args)
+				return nil
+			},
+		},
+		&tuikit.FuncCommand{
+			CmdName:     "enable",
+			CmdAliases:  []string{"allow"},
+			CmdSynopsis: "Enable outbound traffic",
+			CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+				fmt.Fprintf(stdout, "NET_ENABLE:%v\n", args)
+				return nil
+			},
+		},
+	).WithAliases("network")
+
+	var stdout, stderr bytes.Buffer
+	app := tuikit.NewApp("stss", "1.0.0", "Stasis CLI", execCmd, hub)
+	app.Stdout = &stdout
+	app.Stderr = &stderr
+
+	// Passing -h after "--" must NOT trigger help for exec; it must be forwarded to execCmd.Run
+	err := app.Run(context.Background(), []string{"exec", "--", "python", "-h"})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"--", "python", "-h"}, capturedExecArgs)
+
+	// Hub default subcommand ("status")
+	stdout.Reset()
+	err = app.Run(context.Background(), []string{"net", "--dir", "/tmp"})
+	assert.NoError(t, err)
+	assert.True(t, strings.Contains(stdout.String(), "NET_STATUS:[--dir /tmp]"))
+
+	// Hub subcommand with interspersed flags before subcommand
+	stdout.Reset()
+	err = app.Run(context.Background(), []string{"network", "--dir", "/tmp", "allow", "--ttl", "60"})
+	assert.NoError(t, err)
+	assert.True(t, strings.Contains(stdout.String(), "NET_ENABLE:[--dir /tmp --ttl 60]"))
 }
 
 type safeBuffer struct {
