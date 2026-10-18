@@ -28,6 +28,9 @@ type CommandGroup = tuikit.CommandGroup
 // HelpSection represents a custom documentation block rendered in the help screen.
 type HelpSection = tuikit.HelpSection
 
+// GroupCommand routes declarative 2nd-level subcommands with automatic help and validation.
+type GroupCommand = tuikit.GroupCommand
+
 // HubCommand routes nested subcommands with an optional default subcommand fallback.
 type HubCommand = tuikit.HubCommand
 
@@ -63,6 +66,11 @@ func NewCommand(
 	}
 }
 
+// NewGroupCommand constructs a declarative 2nd-level subcommand group router.
+func NewGroupCommand(name, synopsis string, subcommands ...Command) *GroupCommand {
+	return tuikit.NewGroupCommand(name, synopsis, subcommands...)
+}
+
 // NewHubCommand creates a nested subcommand router.
 func NewHubCommand(name, synopsis, usage, defaultSubcmd string, subcommands ...Command) *HubCommand {
 	return tuikit.NewHubCommand(name, synopsis, usage, defaultSubcmd, subcommands...)
@@ -72,6 +80,17 @@ func NewHubCommand(name, synopsis, usage, defaultSubcmd string, subcommands ...C
 // clumping (-la), attached values (-I*.tmp), interspersed arguments, and typo suggestions.
 func ParseInterspersedFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	return argkit.ParseInterspersedFlags(fs, args)
+}
+
+// FormatFlags renders a [flag.FlagSet] in the unified ctrl HelpSection style with aligned
+// "--flag <type>" columns, merged short/long aliases ("-f, --flag <type>"), and default values.
+func FormatFlags(fs *flag.FlagSet) string {
+	return argkit.FormatFlags(fs)
+}
+
+// PrintFlags writes the formatted flag table to w if fs has any registered flags.
+func PrintFlags(w io.Writer, fs *flag.FlagSet) {
+	argkit.PrintFlags(w, fs)
 }
 
 // NewTable constructs a new Table with the specified header titles.

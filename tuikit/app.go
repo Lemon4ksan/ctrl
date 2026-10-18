@@ -118,8 +118,10 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		if len(args) > 1 {
 			subName := args[1]
 			if cmd, ok := a.cmdMap[subName]; ok {
-				fmt.Fprintf(stdout, "%s — %s\n\nUsage:\n  %s\n", cmd.Name(), cmd.Synopsis(), cmd.Usage())
-				return nil
+				if hr, ok := cmd.(HelpRenderer); ok {
+					return hr.RenderHelp(ctx, args[2:], stdout)
+				}
+				return renderSingleCommandHelp(ctx, "", cmd, stdout)
 			}
 			return fmt.Errorf("unknown command %q for help. Run '%s help' for available commands", subName, a.Name)
 		}
@@ -138,9 +140,11 @@ func (a *App) Run(ctx context.Context, args []string) error {
 			if arg == "--" {
 				break
 			}
-			if arg == "-h" || arg == "--help" {
-				fmt.Fprintf(stdout, "%s — %s\n\nUsage:\n  %s\n", cmd.Name(), cmd.Synopsis(), cmd.Usage())
-				return nil
+			if arg == "-h" || arg == "--help" || arg == "-help" {
+				if hr, ok := cmd.(HelpRenderer); ok {
+					return hr.RenderHelp(ctx, args[1:], stdout)
+				}
+				return renderSingleCommandHelp(ctx, "", cmd, stdout)
 			}
 		}
 		err := cmd.Run(ctx, args[1:], stdout, stderr)

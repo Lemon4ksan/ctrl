@@ -5,6 +5,7 @@
 package argkit
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"strings"
@@ -110,7 +111,13 @@ func ParseInterspersedFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 	}
 
+	fs.Usage = func() {}
+
 	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			PrintFlags(fs.Output(), fs)
+			return nil, err
+		}
 		msg := err.Error()
 		if strings.Contains(msg, "flag provided but not defined: ") {
 			parts := strings.Split(msg, "flag provided but not defined: ")
@@ -394,5 +401,117 @@ func DurationVar(fs *flag.FlagSet, p *time.Duration, name, short string, value t
 
 	if short != "" && short != name {
 		fs.DurationVar(p, short, value, usage)
+	}
+}
+
+type formattedFlagItem struct {
+	short    string
+	long     string
+	typeName string
+	desc     string
+	defVal   string
+	isBool   bool
+}
+
+// FormatFlags renders a [flag.FlagSet] in the unified ctrl HelpSection style with aligned
+// "--flag <type>" columns, merged short/long aliases ("-f, --flag <type>"), and default values.
+func FormatFlags(fs *flag.FlagSet) string {
+	if fs == nil {
+		return ""
+	}
+
+	var raw []*flag.Flag
+	fs.VisitAll(func(fl *flag.Flag) {
+		raw = append(raw, fl)
+	})
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var items []*formattedFlagItem
+	byKey := make(map[string]*formattedFlagItem, len(raw))
+
+	for _, fl := range raw {
+		bf, ok := fl.Value.(boolFlag)
+		isB := ok && bf.IsBoolFlag()
+		typeName, desc := flag.UnquoteUsage(fl)
+		if !isB && typeName == "" {
+			typeName = "value"
+		}
+
+		key := fl.Usage + "\x00" + fl.DefValue
+		if existing, found := byKey[key]; found && fl.Usage != "" {
+			if len(fl.Name) == 1 && existing.short == "" {
+				existing.short = fl.Name
+				continue
+			}
+			if len(fl.Name) > 1 && existing.long == "" {
+				existing.long = fl.Name
+				continue
+			}
+		}
+
+		item := &formattedFlagItem{
+			typeName: typeName,
+			desc:     desc,
+			defVal:   fl.DefValue,
+			isBool:   isB,
+		}
+		if len(fl.Name) == 1 {
+			item.short = fl.Name
+		} else {
+			item.long = fl.Name
+		}
+		byKey[key] = item
+		items = append(items, item)
+	}
+
+	type renderedRow struct {
+		spec string
+		desc string
+	}
+	rows := make([]renderedRow, 0, len(items))
+	maxLen := 14
+
+	for _, it := range items {
+		var spec string
+		switch {
+		case it.short != "" && it.long != "":
+			spec = fmt.Sprintf("-%s, --%s", it.short, it.long)
+		case it.long != "":
+			spec = "--" + it.long
+		default:
+			spec = "-" + it.short
+		}
+		if !it.isBool && it.typeName != "" {
+			spec += " <" + it.typeName + ">"
+		}
+		if len(spec) > maxLen && len(spec) <= 34 {
+			maxLen = len(spec)
+		}
+
+		desc := it.desc
+		if it.defVal != "" && it.defVal != "false" && it.defVal != "0" && it.defVal != "0s" &&
+			!strings.Contains(strings.ToLower(desc), "default") {
+			desc = fmt.Sprintf("%s (default: %s)", desc, it.defVal)
+		}
+		rows = append(rows, renderedRow{spec: spec, desc: desc})
+	}
+
+	var b strings.Builder
+	b.WriteString("Flags:\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "  %-*s  %s\n", maxLen, r.spec, r.desc)
+	}
+	return b.String()
+}
+
+// PrintFlags writes the formatted flag table to w if fs has any registered flags.
+func PrintFlags(w interface{ Write([]byte) (int, error) }, fs *flag.FlagSet) {
+	if w == nil || fs == nil {
+		return
+	}
+	if out := FormatFlags(fs); out != "" {
+		_, _ = w.Write([]byte(out))
 	}
 }

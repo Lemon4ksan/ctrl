@@ -5,7 +5,9 @@
 package tuikit
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -26,13 +28,22 @@ type Command interface {
 	Run(ctx context.Context, args []string, stdout, stderr io.Writer) error
 }
 
-// FuncCommand is a lightweight adapter creating a [Command] from functional closures.
+// HelpRenderer is an optional interface implemented by commands with nested subcommands
+// or custom help layouts.
+type HelpRenderer interface {
+	RenderHelp(ctx context.Context, args []string, w io.Writer) error
+}
+
+// FuncCommand is a lightweight adapter creating a [Command] from functional closures,
+// optionally supporting declarative 2nd-level Subcommands.
 type FuncCommand struct {
-	CmdName     string
-	CmdAliases  []string
-	CmdSynopsis string
-	CmdUsage    string
-	CmdRun      func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+	CmdName        string
+	CmdAliases     []string
+	CmdSynopsis    string
+	CmdUsage       string
+	CmdDefaultSub  string
+	CmdSubcommands []Command
+	CmdRun         func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 }
 
 func (c *FuncCommand) Name() string      { return c.CmdName }
@@ -40,15 +51,35 @@ func (c *FuncCommand) Aliases() []string { return c.CmdAliases }
 func (c *FuncCommand) Synopsis() string  { return c.CmdSynopsis }
 func (c *FuncCommand) Usage() string     { return c.CmdUsage }
 func (c *FuncCommand) Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(c.CmdSubcommands) > 0 {
+		grp := NewGroupCommand(c.CmdName, c.CmdSynopsis, c.CmdSubcommands...).
+			WithUsage(c.CmdUsage).
+			WithDefault(c.CmdDefaultSub).
+			WithAliases(c.CmdAliases...)
+		return grp.Run(ctx, args, stdout, stderr)
+	}
 	if c.CmdRun != nil {
 		return c.CmdRun(ctx, args, stdout, stderr)
 	}
 	return nil
 }
 
-// HubCommand routes nested subcommands (e.g., "net [status|enable|disable]" or "tool [list|add]")
-// with an optional default subcommand when invoked without a subcommand name.
-type HubCommand struct {
+// RenderHelp renders help for a FuncCommand, delegating to GroupCommand if CmdSubcommands are defined.
+func (c *FuncCommand) RenderHelp(ctx context.Context, args []string, w io.Writer) error {
+	if len(c.CmdSubcommands) > 0 {
+		grp := NewGroupCommand(c.CmdName, c.CmdSynopsis, c.CmdSubcommands...).
+			WithUsage(c.CmdUsage).
+			WithDefault(c.CmdDefaultSub).
+			WithAliases(c.CmdAliases...)
+		return grp.RenderHelp(ctx, args, w)
+	}
+	return renderSingleCommandHelp(ctx, "", c, w)
+}
+
+// GroupCommand routes declarative 2nd-level subcommands (e.g., "stss net [status|enable|disable]",
+// "stss hook [pre-tool|session-start]", "stss tool [list|add]") with automatic unknown-subcommand
+// validation and unified "--help" generation.
+type GroupCommand struct {
 	CmdName       string
 	CmdAliases    []string
 	CmdSynopsis   string
@@ -58,66 +89,153 @@ type HubCommand struct {
 	subMap        map[string]Command
 }
 
-// NewHubCommand creates a nested subcommand router.
-func NewHubCommand(name, synopsis, usage, defaultSubcmd string, subcommands ...Command) *HubCommand {
-	h := &HubCommand{
-		CmdName:       name,
-		CmdSynopsis:   synopsis,
-		CmdUsage:      usage,
-		DefaultSubcmd: defaultSubcmd,
-		Subcommands:   subcommands,
-		subMap:        make(map[string]Command, len(subcommands)*2),
+// HubCommand is an alias for [GroupCommand].
+type HubCommand = GroupCommand
+
+// NewGroupCommand constructs a declarative 2nd-level subcommand group router.
+func NewGroupCommand(name, synopsis string, subcommands ...Command) *GroupCommand {
+	g := &GroupCommand{
+		CmdName:     name,
+		CmdSynopsis: synopsis,
+		Subcommands: subcommands,
 	}
-	for _, sc := range subcommands {
-		h.subMap[sc.Name()] = sc
+	g.initMap()
+	return g
+}
+
+// NewHubCommand creates a nested subcommand router (alias for [NewGroupCommand] with usage and defaultSubcmd).
+func NewHubCommand(name, synopsis, usage, defaultSubcmd string, subcommands ...Command) *GroupCommand {
+	return NewGroupCommand(name, synopsis, subcommands...).
+		WithUsage(usage).
+		WithDefault(defaultSubcmd)
+}
+
+// WithUsage sets a custom usage line on the GroupCommand.
+func (g *GroupCommand) WithUsage(usage string) *GroupCommand {
+	g.CmdUsage = usage
+	return g
+}
+
+// WithDefault sets the default subcommand executed when no subcommand name is provided.
+func (g *GroupCommand) WithDefault(defaultSubcmd string) *GroupCommand {
+	g.DefaultSubcmd = defaultSubcmd
+	return g
+}
+
+// WithAliases attaches command aliases to the GroupCommand.
+func (g *GroupCommand) WithAliases(aliases ...string) *GroupCommand {
+	g.CmdAliases = aliases
+	return g
+}
+
+func (g *GroupCommand) initMap() {
+	if g.subMap != nil {
+		return
+	}
+	g.subMap = make(map[string]Command, len(g.Subcommands)*2)
+	for _, sc := range g.Subcommands {
+		g.subMap[strings.ToLower(sc.Name())] = sc
 		for _, alias := range sc.Aliases() {
-			h.subMap[alias] = sc
+			g.subMap[strings.ToLower(alias)] = sc
 		}
 	}
-	return h
 }
 
-// WithAliases attaches command aliases to the HubCommand and returns it for chaining.
-func (h *HubCommand) WithAliases(aliases ...string) *HubCommand {
-	h.CmdAliases = aliases
-	return h
-}
-
-func (h *HubCommand) Name() string      { return h.CmdName }
-func (h *HubCommand) Aliases() []string { return h.CmdAliases }
-func (h *HubCommand) Synopsis() string  { return h.CmdSynopsis }
-func (h *HubCommand) Usage() string {
-	if h.CmdUsage != "" {
-		return h.CmdUsage
+func (g *GroupCommand) subcommandNames() string {
+	names := make([]string, 0, len(g.Subcommands))
+	for _, sc := range g.Subcommands {
+		names = append(names, sc.Name())
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s <subcommand> [flags]\n\nSubcommands:\n", h.CmdName)
-	for _, sc := range h.Subcommands {
-		fmt.Fprintf(&b, "  %-14s %s\n", sc.Name(), sc.Synopsis())
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return strings.Join(names, ", ")
 }
 
-// Run dispatches execution to the matching nested subcommand or the default subcommand.
-func (h *HubCommand) Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	if h.subMap == nil {
-		h.subMap = make(map[string]Command, len(h.Subcommands)*2)
-		for _, sc := range h.Subcommands {
-			h.subMap[sc.Name()] = sc
-			for _, alias := range sc.Aliases() {
-				h.subMap[alias] = sc
+func (g *GroupCommand) Name() string      { return g.CmdName }
+func (g *GroupCommand) Aliases() []string { return g.CmdAliases }
+func (g *GroupCommand) Synopsis() string  { return g.CmdSynopsis }
+func (g *GroupCommand) Usage() string {
+	if g.CmdUsage != "" {
+		return g.CmdUsage
+	}
+	return fmt.Sprintf("%s <%s> [flags]", g.CmdName, strings.Join(strings.Split(g.subcommandNames(), ", "), "|"))
+}
+
+// RenderHelp renders either the group overview (with aligned Subcommands table) or the specific
+// 2nd-level subcommand's help and aligned FlagSet.
+func (g *GroupCommand) RenderHelp(ctx context.Context, args []string, w io.Writer) error {
+	g.initMap()
+
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if !strings.HasPrefix(arg, "-") {
+			if sc, ok := g.subMap[strings.ToLower(arg)]; ok {
+				return renderSingleCommandHelp(ctx, g.CmdName, sc, w)
 			}
 		}
 	}
 
-	// Locate the first non-flag token before "--" as the subcommand candidate
+	fmt.Fprintf(w, "%s — %s\n\nUsage:\n  %s\n\nSubcommands:\n", g.Name(), g.Synopsis(), g.Usage())
+	maxLen := 14
+	for _, sc := range g.Subcommands {
+		d := sc.Name()
+		if len(sc.Aliases()) > 0 {
+			d = fmt.Sprintf("%s, %s", sc.Name(), strings.Join(sc.Aliases(), ", "))
+		}
+		if len(d) > maxLen && len(d) <= 30 {
+			maxLen = len(d)
+		}
+	}
+	for _, sc := range g.Subcommands {
+		d := sc.Name()
+		if len(sc.Aliases()) > 0 {
+			d = fmt.Sprintf("%s, %s", sc.Name(), strings.Join(sc.Aliases(), ", "))
+		}
+		syn := sc.Synopsis()
+		if strings.EqualFold(sc.Name(), g.DefaultSubcmd) {
+			syn += " (default)"
+		}
+		fmt.Fprintf(w, "  %-*s  %s\n", maxLen, d, syn)
+	}
+
+	if g.DefaultSubcmd != "" {
+		if sc, ok := g.subMap[strings.ToLower(g.DefaultSubcmd)]; ok {
+			var flagBuf bytes.Buffer
+			if err := sc.Run(
+				ctx,
+				[]string{"-h"},
+				io.Discard,
+				&flagBuf,
+			); errors.Is(err, flag.ErrHelp) &&
+				flagBuf.Len() > 0 {
+				fmt.Fprintf(w, "\n%s", flagBuf.String())
+			}
+		}
+	}
+	return nil
+}
+
+// Run dispatches execution to the matching nested subcommand or the default subcommand.
+func (g *GroupCommand) Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	g.initMap()
+
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "-h" || arg == "--help" || arg == "-help" {
+			return g.RenderHelp(ctx, args, stdout)
+		}
+	}
+
+	// Locate the first non-flag token before "--" that matches a registered subcommand
 	subIdx := -1
 	for i, arg := range args {
 		if arg == "--" {
 			break
 		}
 		if !strings.HasPrefix(arg, "-") {
-			if _, ok := h.subMap[strings.ToLower(arg)]; ok {
+			if _, ok := g.subMap[strings.ToLower(arg)]; ok {
 				subIdx = i
 				break
 			}
@@ -126,23 +244,54 @@ func (h *HubCommand) Run(ctx context.Context, args []string, stdout, stderr io.W
 
 	if subIdx >= 0 {
 		subName := strings.ToLower(args[subIdx])
-		sc := h.subMap[subName]
+		sc := g.subMap[subName]
 		subArgs := make([]string, 0, len(args)-1)
 		subArgs = append(subArgs, args[:subIdx]...)
 		subArgs = append(subArgs, args[subIdx+1:]...)
-		return sc.Run(ctx, subArgs, stdout, stderr)
+		err := sc.Run(ctx, subArgs, stdout, stderr)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
 	}
 
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("unknown %s subcommand %q (usage: %s)", h.CmdName, args[0], h.Usage())
+		return fmt.Errorf(
+			"unknown %s subcommand %q (expected one of: %s)",
+			g.CmdName,
+			args[0],
+			g.subcommandNames(),
+		)
 	}
 
-	if h.DefaultSubcmd != "" {
-		if sc, ok := h.subMap[h.DefaultSubcmd]; ok {
-			return sc.Run(ctx, args, stdout, stderr)
+	if g.DefaultSubcmd != "" {
+		if sc, ok := g.subMap[strings.ToLower(g.DefaultSubcmd)]; ok {
+			err := sc.Run(ctx, args, stdout, stderr)
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
 		}
 	}
 
-	fmt.Fprintf(stdout, "%s — %s\n\nUsage:\n  %s\n", h.Name(), h.Synopsis(), h.Usage())
+	_ = g.RenderHelp(ctx, args, stdout)
 	return flag.ErrHelp
+}
+
+func renderSingleCommandHelp(ctx context.Context, parentName string, cmd Command, w io.Writer) error {
+	fullName := cmd.Name()
+	if parentName != "" {
+		fullName = parentName + " " + cmd.Name()
+	}
+	usage := cmd.Usage()
+	if usage == "" {
+		usage = fullName + " [flags]"
+	}
+	fmt.Fprintf(w, "%s — %s\n\nUsage:\n  %s\n", fullName, cmd.Synopsis(), usage)
+
+	var flagBuf bytes.Buffer
+	if err := cmd.Run(ctx, []string{"-h"}, io.Discard, &flagBuf); errors.Is(err, flag.ErrHelp) && flagBuf.Len() > 0 {
+		fmt.Fprintf(w, "\n%s", flagBuf.String())
+	}
+	return nil
 }
