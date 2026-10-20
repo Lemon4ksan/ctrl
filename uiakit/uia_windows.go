@@ -269,7 +269,15 @@ func (p *windowsUIAProvider) EnumerateWindow(window WindowID, maxNodes int) ([]N
 	defer comkit.ComRelease(trueCond)
 
 	var cachedArray uintptr
-	if hr := comkit.VtblCall4(winElem, 8, TreeScopeSubtree, trueCond, cacheReq, uintptr(unsafe.Pointer(&cachedArray))); hr.Failed() || cachedArray == 0 {
+	if hr := comkit.VtblCall4(
+		winElem,
+		8,
+		TreeScopeSubtree,
+		trueCond,
+		cacheReq,
+		uintptr(unsafe.Pointer(&cachedArray)),
+	); hr.Failed() ||
+		cachedArray == 0 {
 		return nil, hr.Err("IUIAutomationElement::FindAllBuildCache")
 	}
 	defer comkit.ComRelease(cachedArray)
@@ -315,7 +323,8 @@ func (p *windowsUIAProvider) EnumerateWindow(window WindowID, maxNodes int) ([]N
 func findMatchingElement(uia comkit.Ptr, sel Selector) (uintptr, error) {
 	if sel.Window != 0 {
 		var directElem uintptr
-		if comkit.VtblCall2(uia.Raw(), 6, uintptr(sel.Window), uintptr(unsafe.Pointer(&directElem))).Succeeded() && directElem != 0 {
+		if comkit.VtblCall2(uia.Raw(), 6, uintptr(sel.Window), uintptr(unsafe.Pointer(&directElem))).Succeeded() &&
+			directElem != 0 {
 			return directElem, nil
 		}
 	}
@@ -326,7 +335,8 @@ func findMatchingElement(uia comkit.Ptr, sel Selector) (uintptr, error) {
 	}
 	if rootWindow != 0 {
 		var rootElem uintptr
-		if comkit.VtblCall2(uia.Raw(), 6, uintptr(rootWindow), uintptr(unsafe.Pointer(&rootElem))).Succeeded() && rootElem != 0 {
+		if comkit.VtblCall2(uia.Raw(), 6, uintptr(rootWindow), uintptr(unsafe.Pointer(&rootElem))).Succeeded() &&
+			rootElem != 0 {
 			defer comkit.ComRelease(rootElem)
 
 			var cacheReq uintptr
@@ -340,7 +350,9 @@ func findMatchingElement(uia comkit.Ptr, sel Selector) (uintptr, error) {
 				if comkit.VtblCall1(uia.Raw(), 21, uintptr(unsafe.Pointer(&trueCond))).Succeeded() && trueCond != 0 {
 					defer comkit.ComRelease(trueCond)
 					var arr uintptr
-					if comkit.VtblCall4(rootElem, 8, TreeScopeSubtree, trueCond, cacheReq, uintptr(unsafe.Pointer(&arr))).Succeeded() && arr != 0 {
+					if comkit.VtblCall4(rootElem, 8, TreeScopeSubtree, trueCond, cacheReq, uintptr(unsafe.Pointer(&arr))).
+						Succeeded() &&
+						arr != 0 {
 						defer comkit.ComRelease(arr)
 						var length int32
 						_ = comkit.VtblCall1(arr, 3, uintptr(unsafe.Pointer(&length)))
@@ -350,7 +362,8 @@ func findMatchingElement(uia comkit.Ptr, sel Selector) (uintptr, error) {
 						var bestMatch uintptr
 						for i := int32(0); i < length; i++ {
 							var cand uintptr
-							if comkit.VtblCall2(arr, 4, uintptr(i), uintptr(unsafe.Pointer(&cand))).Failed() || cand == 0 {
+							if comkit.VtblCall2(arr, 4, uintptr(i), uintptr(unsafe.Pointer(&cand))).Failed() ||
+								cand == 0 {
 								continue
 							}
 							node := inspectCachedElement(cand, rootWindow)
@@ -428,7 +441,8 @@ func (p *windowsUIAProvider) InvokeOrSelect(sel Selector) (ActionKind, error) {
 
 	if RoleFromWindowsUIA(ctrlType) == RoleCheckBox || sel.EffectiveRole() == RoleCheckBox {
 		var togPat uintptr
-		if comkit.VtblCall2(target, 16, UIATogglePatternID, uintptr(unsafe.Pointer(&togPat))).Succeeded() && togPat != 0 {
+		if comkit.VtblCall2(target, 16, UIATogglePatternID, uintptr(unsafe.Pointer(&togPat))).Succeeded() &&
+			togPat != 0 {
 			hr := comkit.VtblCall0(togPat, 3)
 			comkit.ComRelease(togPat)
 			if hr.Succeeded() {
@@ -439,7 +453,8 @@ func (p *windowsUIAProvider) InvokeOrSelect(sel Selector) (ActionKind, error) {
 	}
 
 	var selPat uintptr
-	if comkit.VtblCall2(target, 16, UIASelectionItemPatternID, uintptr(unsafe.Pointer(&selPat))).Succeeded() && selPat != 0 {
+	if comkit.VtblCall2(target, 16, UIASelectionItemPatternID, uintptr(unsafe.Pointer(&selPat))).Succeeded() &&
+		selPat != 0 {
 		hr := comkit.VtblCall0(selPat, 3)
 		comkit.ComRelease(selPat)
 		if hr.Succeeded() {
@@ -533,7 +548,8 @@ func (p *windowsUIAProvider) Scroll(sel Selector, deltaX, deltaY int) (ActionKin
 	defer comkit.ComRelease(target)
 
 	var scrollPat uintptr
-	if comkit.VtblCall2(target, 16, UIAScrollPatternID, uintptr(unsafe.Pointer(&scrollPat))).Failed() || scrollPat == 0 {
+	if comkit.VtblCall2(target, 16, UIAScrollPatternID, uintptr(unsafe.Pointer(&scrollPat))).Failed() ||
+		scrollPat == 0 {
 		return "", errors.New("uiakit: element does not support UIA_ScrollPattern")
 	}
 	defer comkit.ComRelease(scrollPat)

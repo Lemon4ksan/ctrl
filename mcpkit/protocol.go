@@ -127,6 +127,9 @@ type RequestHandler interface {
 	HandleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPCResponse
 }
 
+// MethodHandlerFunc processes a custom JSON-RPC 2.0 method registered on [Server].
+type MethodHandlerFunc func(ctx context.Context, req JSONRPCRequest) *JSONRPCResponse
+
 // ToolHandlerFunc processes a single `tools/call` invocation with raw JSON arguments.
 type ToolHandlerFunc func(ctx context.Context, rawArgs json.RawMessage) CallToolResult
 
@@ -157,12 +160,14 @@ func LenientHandler[T any](fn func(ctx context.Context, args T) CallToolResult) 
 }
 
 // Server is a universal, domain-agnostic MCP v1.0 JSON-RPC 2.0 router.
-// It implements the `initialize`, `ping`, `tools/list`, and `tools/call` methods
-// and provides a high-throughput newline-delimited STDIO loop.
+// It implements the `initialize`, `ping`, `tools/list`, and `tools/call` methods,
+// supports custom method registration via [Server.RegisterMethod], and provides
+// a high-throughput newline-delimited STDIO loop.
 type Server struct {
 	info     ServerInfo
 	tools    []ToolDefinition
 	handlers map[string]ToolHandlerFunc
+	methods  map[string]MethodHandlerFunc
 }
 
 // NewServer constructs a universal MCP v1.0 server with the given ServerInfo
@@ -172,6 +177,7 @@ func NewServer(info ServerInfo, defs ...ToolDefinition) *Server {
 		info:     info,
 		tools:    append([]ToolDefinition(nil), defs...),
 		handlers: make(map[string]ToolHandlerFunc, len(defs)),
+		methods:  make(map[string]MethodHandlerFunc),
 	}
 }
 
@@ -184,6 +190,16 @@ func (s *Server) RegisterHandler(name string, handler ToolHandlerFunc) {
 func (s *Server) RegisterTool(def ToolDefinition, handler ToolHandlerFunc) {
 	s.tools = append(s.tools, def)
 	s.handlers[def.Name] = handler
+}
+
+// RegisterMethod registers a custom JSON-RPC 2.0 method handler on the server,
+// enabling extension with custom protocol methods (e.g. resources/list, prompts/list)
+// without modifying the core dispatcher.
+func (s *Server) RegisterMethod(method string, handler MethodHandlerFunc) {
+	if s.methods == nil {
+		s.methods = make(map[string]MethodHandlerFunc)
+	}
+	s.methods[method] = handler
 }
 
 // Serve processes newline-delimited JSON-RPC 2.0 messages from r and writes
@@ -228,6 +244,10 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 func (s *Server) HandleRequest(ctx context.Context, req JSONRPCRequest) *JSONRPCResponse {
 	if req.IsNotification() {
 		return nil
+	}
+
+	if customHandler, ok := s.methods[req.Method]; ok && customHandler != nil {
+		return customHandler(ctx, req)
 	}
 
 	switch req.Method {

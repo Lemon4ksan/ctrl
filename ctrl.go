@@ -19,6 +19,18 @@ type App = tuikit.App
 // Command represents an isolated, testable CLI subcommand contract.
 type Command = tuikit.Command
 
+// HelpRenderer is an optional interface implemented by commands with nested subcommands or custom help layouts.
+type HelpRenderer = tuikit.HelpRenderer
+
+// FlagProvider is an optional interface implemented by commands that expose their [flag.FlagSet] for help generation.
+type FlagProvider = tuikit.FlagProvider
+
+// Renderer represents any terminal UI widget capable of rendering to an [io.Writer] and producing a string.
+type Renderer = tuikit.Renderer
+
+// Styler provides isolated ANSI styling operations without relying on mutable global state.
+type Styler = tuikit.Styler
+
 // FuncCommand is a lightweight adapter creating a [Command] from functional closures.
 type FuncCommand = tuikit.FuncCommand
 
@@ -108,6 +120,16 @@ func NewProgress(opts ...tuikit.ProgressOption) *Progress {
 	return tuikit.NewProgress(opts...)
 }
 
+// NewStyler constructs an isolated [Styler] with a fixed color enablement policy.
+func NewStyler(enabled bool) Styler {
+	return tuikit.NewStyler(enabled)
+}
+
+// DefaultStyler returns a [Styler] that tracks the global color enablement setting.
+func DefaultStyler() Styler {
+	return tuikit.DefaultStyler()
+}
+
 // Styling, badge, and flag binding re-exports for rapid zero-dependency console formatting.
 var (
 	Bold      = tuikit.Bold
@@ -136,10 +158,13 @@ var (
 	RenderStep   = tuikit.RenderStep
 	RenderBar    = tuikit.RenderBar
 
+	Var         = argkit.Var
 	StringVar   = argkit.StringVar
 	BoolVar     = argkit.BoolVar
 	IntVar      = argkit.IntVar
 	Int64Var    = argkit.Int64Var
+	UintVar     = argkit.UintVar
+	Uint64Var   = argkit.Uint64Var
 	Float64Var  = argkit.Float64Var
 	DurationVar = argkit.DurationVar
 )

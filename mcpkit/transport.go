@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -23,6 +22,8 @@ import (
 
 	"github.com/lemon4ksan/foundation/generic"
 )
+
+const maxRPCBodyBytes = 16 * 1024 * 1024
 
 // HTTPServerConfig specifies configuration options for the MCP HTTP/SSE transport.
 type HTTPServerConfig struct {
@@ -182,131 +183,6 @@ func (h *HTTPServer) Limiter() *RateLimiter {
 	return h.limiter
 }
 
-type clientBucket struct {
-	tokens     float64
-	lastRefill time.Time
-}
-
-// RateLimiter implements an in-memory token-bucket rate limiter tracking client requests
-// by IP address and evicting stale buckets to mitigate memory DoS.
-type RateLimiter struct {
-	mu           sync.Mutex
-	rate         float64
-	burst        int
-	clients      map[string]*clientBucket
-	staleTimeout time.Duration
-	stopPrune    chan struct{}
-}
-
-// NewRateLimiter initializes a token-bucket rate limiter with the specified refill rate (tokens/sec) and burst capacity.
-func NewRateLimiter(rate float64, burst int) *RateLimiter {
-	r := generic.Ternary(rate > 0, rate, 50.0)
-	b := generic.Ternary(burst > 0, burst, 100)
-	rl := &RateLimiter{
-		rate:         r,
-		burst:        b,
-		clients:      make(map[string]*clientBucket),
-		staleTimeout: 3 * time.Minute,
-		stopPrune:    make(chan struct{}),
-	}
-	go rl.pruneLoop()
-	return rl
-}
-
-// Allow reports whether a single request from the given client key (typically IP address) is permitted.
-func (rl *RateLimiter) Allow(clientKey string) bool {
-	return rl.AllowN(clientKey, 1.0)
-}
-
-// AllowN reports whether n tokens can be consumed for the given client key.
-func (rl *RateLimiter) AllowN(clientKey string, n float64) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	bucket, ok := rl.clients[clientKey]
-	if !ok {
-		if float64(rl.burst) < n {
-			return false
-		}
-		rl.clients[clientKey] = &clientBucket{
-			tokens:     float64(rl.burst) - n,
-			lastRefill: now,
-		}
-		return true
-	}
-
-	elapsed := now.Sub(bucket.lastRefill).Seconds()
-	bucket.tokens = math.Min(float64(rl.burst), bucket.tokens+elapsed*rl.rate)
-	bucket.lastRefill = now
-
-	if bucket.tokens >= n {
-		bucket.tokens -= n
-		return true
-	}
-	return false
-}
-
-func (rl *RateLimiter) pruneLoop() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-rl.stopPrune:
-			return
-		case <-ticker.C:
-			rl.PruneStale()
-		}
-	}
-}
-
-// PruneStale evicts client buckets that have been inactive longer than staleTimeout.
-func (rl *RateLimiter) PruneStale() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	for ip, bucket := range rl.clients {
-		if now.Sub(bucket.lastRefill) > rl.staleTimeout {
-			delete(rl.clients, ip)
-		}
-	}
-}
-
-// ClientCount returns the number of active client buckets currently tracked.
-func (rl *RateLimiter) ClientCount() int {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	return len(rl.clients)
-}
-
-// HasClient reports whether a bucket currently exists for clientKey.
-func (rl *RateLimiter) HasClient(clientKey string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	_, exists := rl.clients[clientKey]
-	return exists
-}
-
-// SetLastRefill adjusts the last refill timestamp for clientKey (used by deterministic eviction tests).
-func (rl *RateLimiter) SetLastRefill(clientKey string, t time.Time) {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if b, ok := rl.clients[clientKey]; ok {
-		b.lastRefill = t
-	}
-}
-
-// Stop terminates the background bucket eviction goroutine.
-func (rl *RateLimiter) Stop() {
-	select {
-	case <-rl.stopPrune:
-	default:
-		close(rl.stopPrune)
-	}
-}
-
 func extractClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
@@ -332,8 +208,8 @@ func (h *HTTPServer) authMiddleware(next http.Handler) http.Handler {
 		if h.cfg.BearerToken != "" {
 			token := ""
 			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token = after
 			} else if qTok := r.URL.Query().Get("token"); qTok != "" {
 				token = qTok
 			}
@@ -397,17 +273,16 @@ func (h *HTTPServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *HTTPServer) handleMessages(w http.ResponseWriter, r *http.Request) {
+func decodeRPCRequest(w http.ResponseWriter, r *http.Request) (JSONRPCRequest, bool) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed (expected POST)", http.StatusMethodNotAllowed)
-		return
+		return JSONRPCRequest{}, false
 	}
 
-	sessionID := r.URL.Query().Get("sessionId")
-	body, err := io.ReadAll(io.LimitReader(r.Body, 16*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRPCBodyBytes))
 	if err != nil {
 		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
-		return
+		return JSONRPCRequest{}, false
 	}
 
 	var rpcReq JSONRPCRequest
@@ -416,6 +291,15 @@ func (h *HTTPServer) handleMessages(w http.ResponseWriter, r *http.Request) {
 			JSONRPC: "2.0",
 			Error:   &RPCError{Code: ErrCodeParseError, Message: "parse error: " + err.Error()},
 		})
+		return JSONRPCRequest{}, false
+	}
+
+	return rpcReq, true
+}
+
+func (h *HTTPServer) handleMessages(w http.ResponseWriter, r *http.Request) {
+	rpcReq, ok := decodeRPCRequest(w, r)
+	if !ok {
 		return
 	}
 
@@ -431,6 +315,7 @@ func (h *HTTPServer) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessionID := r.URL.Query().Get("sessionId")
 	deliveredSSE := false
 	if sessionID != "" {
 		h.clientsMu.RLock()
@@ -455,23 +340,8 @@ func (h *HTTPServer) handleMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTPServer) handleRPC(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed (expected POST)", http.StatusMethodNotAllowed)
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, 16*1024*1024))
-	if err != nil {
-		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	var rpcReq JSONRPCRequest
-	if err := json.Unmarshal(body, &rpcReq); err != nil {
-		writeJSONResponse(w, http.StatusBadRequest, JSONRPCResponse{
-			JSONRPC: "2.0",
-			Error:   &RPCError{Code: ErrCodeParseError, Message: "parse error: " + err.Error()},
-		})
+	rpcReq, ok := decodeRPCRequest(w, r)
+	if !ok {
 		return
 	}
 

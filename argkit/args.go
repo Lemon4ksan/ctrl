@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"strings"
-	"time"
 	"unicode/utf8"
 )
 
@@ -17,52 +16,7 @@ type boolFlag interface {
 	IsBoolFlag() bool
 }
 
-// StringSliceFlag implements [flag.Value] for multi-valued command line arguments.
-type StringSliceFlag []string
-
-func (s *StringSliceFlag) String() string {
-	if s == nil {
-		return ""
-	}
-	return strings.Join(*s, ",")
-}
-
-func (s *StringSliceFlag) Set(value string) error {
-	*s = append(*s, value)
-	return nil
-}
-
-// NormalizeArgs stitches back arguments that were fragmented by shell tokenizers
-// (e.g. PowerShell or CMD splitting -out=pkg/api and .go).
-func NormalizeArgs(args []string) []string {
-	if len(args) == 0 {
-		return args
-	}
-
-	result := make([]string, 0, len(args))
-
-	var arg strings.Builder
-	for i := 0; i < len(args); i++ {
-		arg.WriteString(args[i])
-		for i+1 < len(args) && isOrphanedSuffix(args[i+1]) {
-			arg.WriteString(args[i+1])
-			i++
-		}
-
-		result = append(result, arg.String())
-		arg.Reset()
-	}
-
-	return result
-}
-
-func isOrphanedSuffix(arg string) bool {
-	return strings.HasPrefix(arg, ".") &&
-		arg != "." &&
-		arg != ".." &&
-		!strings.Contains(arg, "/") &&
-		!strings.Contains(arg, "\\")
-}
+const unknownFlagPrefix = "flag provided but not defined: "
 
 // ParseInterspersedFlags parses a [flag.FlagSet] correctly with full POSIX semantics:
 // - Free interspersing of positional arguments and flags anywhere in the command line.
@@ -73,9 +27,8 @@ func isOrphanedSuffix(arg string) bool {
 func ParseInterspersedFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	args = decomposeFlags(fs, NormalizeArgs(args))
 
-	// Separate flags from positional arguments while respecting value consumption
 	var (
-		flagArgs []string
+		flagArgs = make([]string, 0, len(args))
 		posArgs  []string
 	)
 
@@ -104,34 +57,40 @@ func ParseInterspersedFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 		flagArgs = append(flagArgs, arg)
 
 		if !ok || !bf.IsBoolFlag() {
-			if !hasEqual && i+1 < len(args) {
+			if i+1 < len(args) {
 				i++
 				flagArgs = append(flagArgs, args[i])
 			}
 		}
 	}
 
+	prevUsage := fs.Usage
 	fs.Usage = func() {}
+	defer func() { fs.Usage = prevUsage }()
 
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			PrintFlags(fs.Output(), fs)
 			return nil, err
 		}
-		msg := err.Error()
-		if strings.Contains(msg, "flag provided but not defined: ") {
-			parts := strings.Split(msg, "flag provided but not defined: ")
-			if len(parts) == 2 {
-				badFlag := strings.TrimSpace(parts[1])
-				if match := findClosestFlag(fs, badFlag); match != "" {
-					return nil, fmt.Errorf("flag provided but not defined: %s (did you mean: --%s?)", badFlag, match)
-				}
-			}
-		}
-		return nil, err
+		return nil, enrichParseError(fs, err)
 	}
 
 	return posArgs, nil
+}
+
+func enrichParseError(fs *flag.FlagSet, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if _, after, ok := strings.Cut(msg, unknownFlagPrefix); ok {
+		badFlag := strings.TrimSpace(after)
+		if match := findClosestFlag(fs, badFlag); match != "" {
+			return fmt.Errorf("%s%s (did you mean: --%s?)", unknownFlagPrefix, badFlag, match)
+		}
+	}
+	return err
 }
 
 func decomposeFlags(fs *flag.FlagSet, args []string) []string {
@@ -171,10 +130,9 @@ func decomposeFlag(fs *flag.FlagSet, arg string) ([]string, bool) {
 	}
 
 	// If the entire string is already registered (e.g. -where, -all, -sort), keep as is
-	if flagName, _, ok := strings.Cut(clean, "="); ok {
-		if fs.Lookup(flagName) != nil {
-			return nil, false
-		}
+	flagName, _, _ := strings.Cut(clean, "=")
+	if fs.Lookup(flagName) != nil {
+		return nil, false
 	}
 
 	var result []string
@@ -207,311 +165,4 @@ func decomposeFlag(fs *flag.FlagSet, arg string) ([]string, bool) {
 	}
 
 	return result, true
-}
-
-// findClosestFlag calculates Levenshtein distance to suggest the closest defined flag for typos.
-func findClosestFlag(fs *flag.FlagSet, unknown string) string {
-	clean, _, _ := strings.Cut(strings.TrimLeft(unknown, "-"), "=")
-	if len(clean) == 0 {
-		return ""
-	}
-
-	bestMatch := ""
-	minDist := 3 // max allowed edit distance threshold
-	cleanLower := strings.ToLower(clean)
-
-	fs.VisitAll(func(fl *flag.Flag) {
-		dist := Levenshtein(cleanLower, strings.ToLower(fl.Name))
-		if dist < minDist {
-			minDist = dist
-			bestMatch = fl.Name
-		}
-	})
-
-	return bestMatch
-}
-
-// Suggest finds the flag name in fs closest in Levenshtein distance to name.
-func Suggest(fs *flag.FlagSet, name string) string {
-	return findClosestFlag(fs, name)
-}
-
-// Levenshtein computes the Levenshtein distance between s1 and s2.
-// It uses stack-allocated buffers for typical strings up to 64 runes to achieve
-// 0 heap allocations.
-func Levenshtein(s1, s2 string) int {
-	if isASCII(s1) && isASCII(s2) {
-		n1, n2 := len(s1), len(s2)
-		if n1 == 0 {
-			return n2
-		}
-		if n2 == 0 {
-			return n1
-		}
-
-		if n1 < n2 {
-			s1, s2 = s2, s1
-			n1, n2 = n2, n1
-		}
-
-		var stackRow [65]int
-		var row []int
-		if n2+1 <= len(stackRow) {
-			row = stackRow[:n2+1]
-		} else {
-			row = make([]int, n2+1)
-		}
-
-		for j := 0; j <= n2; j++ {
-			row[j] = j
-		}
-
-		for i := 1; i <= n1; i++ {
-			prev := i
-			b1 := s1[i-1]
-			for j := 1; j <= n2; j++ {
-				cost := 0
-				if b1 != s2[j-1] {
-					cost = 1
-				}
-				cur := min(row[j-1]+cost, min(prev+1, row[j]+1))
-				row[j-1] = prev
-				prev = cur
-			}
-			row[n2] = prev
-		}
-		return row[n2]
-	}
-
-	var stackR1 [64]rune
-	var stackR2 [64]rune
-	r1 := decodeRunes(s1, stackR1[:0])
-	r2 := decodeRunes(s2, stackR2[:0])
-
-	n1, n2 := len(r1), len(r2)
-	if n1 == 0 {
-		return n2
-	}
-	if n2 == 0 {
-		return n1
-	}
-
-	if n1 < n2 {
-		r1, r2 = r2, r1
-		n1, n2 = n2, n1
-	}
-
-	var stackRow [65]int
-	var row []int
-	if n2+1 <= len(stackRow) {
-		row = stackRow[:n2+1]
-	} else {
-		row = make([]int, n2+1)
-	}
-
-	for j := 0; j <= n2; j++ {
-		row[j] = j
-	}
-
-	for i := 1; i <= n1; i++ {
-		prev := i
-		r1Val := r1[i-1]
-		for j := 1; j <= n2; j++ {
-			cost := 0
-			if r1Val != r2[j-1] {
-				cost = 1
-			}
-			cur := min(row[j-1]+cost, min(prev+1, row[j]+1))
-			row[j-1] = prev
-			prev = cur
-		}
-		row[n2] = prev
-	}
-	return row[n2]
-}
-
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
-}
-
-func decodeRunes(s string, buf []rune) []rune {
-	for _, r := range s {
-		if len(buf) < cap(buf) {
-			buf = append(buf, r)
-		} else {
-			return []rune(s)
-		}
-	}
-	return buf
-}
-
-// StringVar binds a string flag with optional short alias.
-func StringVar(fs *flag.FlagSet, p *string, name, short, value, usage string) {
-	fs.StringVar(p, name, value, usage)
-
-	if short != "" && short != name {
-		fs.StringVar(p, short, value, usage)
-	}
-}
-
-// BoolVar binds a boolean flag with optional short alias.
-func BoolVar(fs *flag.FlagSet, p *bool, name, short string, value bool, usage string) {
-	fs.BoolVar(p, name, value, usage)
-
-	if short != "" && short != name {
-		fs.BoolVar(p, short, value, usage)
-	}
-}
-
-// IntVar binds an integer flag with optional short alias.
-func IntVar(fs *flag.FlagSet, p *int, name, short string, value int, usage string) {
-	fs.IntVar(p, name, value, usage)
-
-	if short != "" && short != name {
-		fs.IntVar(p, short, value, usage)
-	}
-}
-
-// Int64Var binds an int64 flag with optional short alias.
-func Int64Var(fs *flag.FlagSet, p *int64, name, short string, value int64, usage string) {
-	fs.Int64Var(p, name, value, usage)
-
-	if short != "" && short != name {
-		fs.Int64Var(p, short, value, usage)
-	}
-}
-
-// Float64Var binds a float64 flag with optional short alias.
-func Float64Var(fs *flag.FlagSet, p *float64, name, short string, value float64, usage string) {
-	fs.Float64Var(p, name, value, usage)
-
-	if short != "" && short != name {
-		fs.Float64Var(p, short, value, usage)
-	}
-}
-
-// DurationVar binds a time.Duration flag with optional short alias.
-func DurationVar(fs *flag.FlagSet, p *time.Duration, name, short string, value time.Duration, usage string) {
-	fs.DurationVar(p, name, value, usage)
-
-	if short != "" && short != name {
-		fs.DurationVar(p, short, value, usage)
-	}
-}
-
-type formattedFlagItem struct {
-	short    string
-	long     string
-	typeName string
-	desc     string
-	defVal   string
-	isBool   bool
-}
-
-// FormatFlags renders a [flag.FlagSet] in the unified ctrl HelpSection style with aligned
-// "--flag <type>" columns, merged short/long aliases ("-f, --flag <type>"), and default values.
-func FormatFlags(fs *flag.FlagSet) string {
-	if fs == nil {
-		return ""
-	}
-
-	var raw []*flag.Flag
-	fs.VisitAll(func(fl *flag.Flag) {
-		raw = append(raw, fl)
-	})
-	if len(raw) == 0 {
-		return ""
-	}
-
-	var items []*formattedFlagItem
-	byKey := make(map[string]*formattedFlagItem, len(raw))
-
-	for _, fl := range raw {
-		bf, ok := fl.Value.(boolFlag)
-		isB := ok && bf.IsBoolFlag()
-		typeName, desc := flag.UnquoteUsage(fl)
-		if !isB && typeName == "" {
-			typeName = "value"
-		}
-
-		key := fl.Usage + "\x00" + fl.DefValue
-		if existing, found := byKey[key]; found && fl.Usage != "" {
-			if len(fl.Name) == 1 && existing.short == "" {
-				existing.short = fl.Name
-				continue
-			}
-			if len(fl.Name) > 1 && existing.long == "" {
-				existing.long = fl.Name
-				continue
-			}
-		}
-
-		item := &formattedFlagItem{
-			typeName: typeName,
-			desc:     desc,
-			defVal:   fl.DefValue,
-			isBool:   isB,
-		}
-		if len(fl.Name) == 1 {
-			item.short = fl.Name
-		} else {
-			item.long = fl.Name
-		}
-		byKey[key] = item
-		items = append(items, item)
-	}
-
-	type renderedRow struct {
-		spec string
-		desc string
-	}
-	rows := make([]renderedRow, 0, len(items))
-	maxLen := 14
-
-	for _, it := range items {
-		var spec string
-		switch {
-		case it.short != "" && it.long != "":
-			spec = fmt.Sprintf("-%s, --%s", it.short, it.long)
-		case it.long != "":
-			spec = "--" + it.long
-		default:
-			spec = "-" + it.short
-		}
-		if !it.isBool && it.typeName != "" {
-			spec += " <" + it.typeName + ">"
-		}
-		if len(spec) > maxLen && len(spec) <= 34 {
-			maxLen = len(spec)
-		}
-
-		desc := it.desc
-		if it.defVal != "" && it.defVal != "false" && it.defVal != "0" && it.defVal != "0s" &&
-			!strings.Contains(strings.ToLower(desc), "default") {
-			desc = fmt.Sprintf("%s (default: %s)", desc, it.defVal)
-		}
-		rows = append(rows, renderedRow{spec: spec, desc: desc})
-	}
-
-	var b strings.Builder
-	b.WriteString("Flags:\n")
-	for _, r := range rows {
-		fmt.Fprintf(&b, "  %-*s  %s\n", maxLen, r.spec, r.desc)
-	}
-	return b.String()
-}
-
-// PrintFlags writes the formatted flag table to w if fs has any registered flags.
-func PrintFlags(w interface{ Write([]byte) (int, error) }, fs *flag.FlagSet) {
-	if w == nil || fs == nil {
-		return
-	}
-	if out := FormatFlags(fs); out != "" {
-		_, _ = w.Write([]byte(out))
-	}
 }

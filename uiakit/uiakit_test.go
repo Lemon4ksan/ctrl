@@ -187,7 +187,11 @@ func TestCustomProviderInjection(t *testing.T) {
 	if act, err := uiakit.InvokeOrSelect(uiakit.Selector{Title: "OK"}); err != nil || act != uiakit.ActionInvoke {
 		t.Fatalf("InvokeOrSelect via mock failed: %v, %v", act, err)
 	}
-	if act, err := uiakit.SetValue(uiakit.Selector{Title: "Input"}, "hello"); err != nil || act != uiakit.ActionSetValue || mock.lastText != "hello" {
+	if act, err := uiakit.SetValue(
+		uiakit.Selector{Title: "Input"},
+		"hello",
+	); err != nil || act != uiakit.ActionSetValue ||
+		mock.lastText != "hello" {
 		t.Fatalf("SetValue via mock failed: %v, %v", act, err)
 	}
 	if act, err := uiakit.Scroll(uiakit.Selector{Title: "List"}, 0, -120); err != nil || act != uiakit.ActionScroll {

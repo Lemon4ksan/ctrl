@@ -12,6 +12,11 @@ import (
 // RenderStep formats a numbered pipeline stage with dotted connector dots.
 // Example: "[1/3] Pre-flight Contract Audit ........... ✔ PASSED (100% clean)"
 func RenderStep(current, total int, label, status string, totalLabelWidth int) string {
+	return DefaultStyler().RenderStep(current, total, label, status, totalLabelWidth)
+}
+
+// RenderStep formats a numbered pipeline stage with dotted connector dots using s's color policy.
+func (s Styler) RenderStep(current, total int, label, status string, totalLabelWidth int) string {
 	prefix := fmt.Sprintf("[%d/%d] %s ", current, total, label)
 	vis := VisibleWidth(prefix)
 
@@ -21,19 +26,29 @@ func RenderStep(current, total int, label, status string, totalLabelWidth int) s
 
 	dots := max(totalLabelWidth-vis, 3)
 
-	return prefix + Gray(strings.Repeat(".", dots)) + " " + status
+	return prefix + s.Gray(strings.Repeat(".", dots)) + " " + status
 }
 
 // RenderDivider returns a horizontal divider line of the given width.
 func RenderDivider(width int) string {
+	return DefaultStyler().RenderDivider(width)
+}
+
+// RenderDivider returns a horizontal divider line of the given width using s's color policy.
+func (s Styler) RenderDivider(width int) string {
 	if width <= 0 {
 		width = 77
 	}
 
-	return Gray(strings.Repeat("─", width))
+	return s.Gray(strings.Repeat("─", width))
 }
 
 // RenderHeader formats an emphasized section header.
 func RenderHeader(title string) string {
-	return Bold(title)
+	return DefaultStyler().RenderHeader(title)
+}
+
+// RenderHeader formats an emphasized section header using s's color policy.
+func (s Styler) RenderHeader(title string) string {
+	return s.Bold(title)
 }
