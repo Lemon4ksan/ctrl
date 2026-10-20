@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/Lemon4ksan/ctrl/compare/v0.1.0...v0.2.0) (2026-10-20)
+
+
+### Features
+
+* add uiakit Computer Use engine, mcpkit protocol router, and SOLID subpackage modularization ([#2](https://github.com/Lemon4ksan/ctrl/issues/2)) ([d7377a0](https://github.com/Lemon4ksan/ctrl/commit/d7377a0dd5578bc2a1573a231f85c9c7bdb6fbb8))
+
 ## 0.1.0 (2026-10-14)
 
 
