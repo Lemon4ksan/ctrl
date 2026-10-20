@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"slices"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/lemon4ksan/foundation/testing/assert"
 
+	"github.com/lemon4ksan/ctrl/argkit"
 	"github.com/lemon4ksan/ctrl/tuikit"
 )
 
@@ -110,6 +112,12 @@ func TestTUI_App(t *testing.T) {
 	}
 
 	stdout.Reset()
+	app.HelpSections = []tuikit.HelpSection{
+		{
+			Title: "Built-in Profiles",
+			Lines: []string{"ghost-worktree   Default CoW worktree"},
+		},
+	}
 	app.PrintUsage(&stdout)
 	usage := stdout.String()
 	if !strings.Contains(usage, "testapp 1.0.0 — Test Description") {
@@ -118,12 +126,74 @@ func TestTUI_App(t *testing.T) {
 	if !strings.Contains(usage, "ping") || !strings.Contains(usage, "Test ping command") {
 		t.Errorf("expected command listing in usage: %q", usage)
 	}
+	if !strings.Contains(usage, "Built-in Profiles:") || !strings.Contains(usage, "ghost-worktree") {
+		t.Errorf("expected HelpSections in usage: %q", usage)
+	}
 	if strings.Contains(usage, "COMMAND") && strings.Contains(usage, "SYNOPSIS") {
 		t.Errorf("usage should not contain ASCII table headers: %q", usage)
 	}
 	if strings.Contains(usage, "────") {
 		t.Errorf("usage should not contain ASCII table divider lines: %q", usage)
 	}
+}
+
+func TestTUI_App_DoubleDashPassThroughAndHubCommand(t *testing.T) {
+	var capturedExecArgs []string
+	execCmd := &tuikit.FuncCommand{
+		CmdName:     "exec",
+		CmdSynopsis: "Run command in guest",
+		CmdUsage:    "stss exec -- <command>",
+		CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+			capturedExecArgs = args
+			return nil
+		},
+	}
+
+	hub := tuikit.NewHubCommand(
+		"net",
+		"Manage network killswitch",
+		"stss net [status|enable|disable]",
+		"status",
+		&tuikit.FuncCommand{
+			CmdName:     "status",
+			CmdSynopsis: "Show status",
+			CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+				fmt.Fprintf(stdout, "NET_STATUS:%v\n", args)
+				return nil
+			},
+		},
+		&tuikit.FuncCommand{
+			CmdName:     "enable",
+			CmdAliases:  []string{"allow"},
+			CmdSynopsis: "Enable outbound traffic",
+			CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+				fmt.Fprintf(stdout, "NET_ENABLE:%v\n", args)
+				return nil
+			},
+		},
+	).WithAliases("network")
+
+	var stdout, stderr bytes.Buffer
+	app := tuikit.NewApp("stss", "1.0.0", "Stasis CLI", execCmd, hub)
+	app.Stdout = &stdout
+	app.Stderr = &stderr
+
+	// Passing -h after "--" must NOT trigger help for exec; it must be forwarded to execCmd.Run
+	err := app.Run(context.Background(), []string{"exec", "--", "python", "-h"})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"--", "python", "-h"}, capturedExecArgs)
+
+	// Hub default subcommand ("status")
+	stdout.Reset()
+	err = app.Run(context.Background(), []string{"net", "--dir", "/tmp"})
+	assert.NoError(t, err)
+	assert.True(t, strings.Contains(stdout.String(), "NET_STATUS:[--dir /tmp]"))
+
+	// Hub subcommand with interspersed flags before subcommand
+	stdout.Reset()
+	err = app.Run(context.Background(), []string{"network", "--dir", "/tmp", "allow", "--ttl", "60"})
+	assert.NoError(t, err)
+	assert.True(t, strings.Contains(stdout.String(), "NET_ENABLE:[--dir /tmp --ttl 60]"))
 }
 
 type safeBuffer struct {
@@ -472,4 +542,90 @@ func BenchmarkLinesSeq_ZeroAlloc(b *testing.B) {
 			_ = line
 		}
 	}
+}
+
+func TestSOLID_FlagProvider_NoRunOnHelp(t *testing.T) {
+	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
+	var env string
+	argkit.StringVar(fs, &env, "env", "e", "prod", "target environment")
+
+	runCalled := false
+	deployCmd := (&tuikit.FuncCommand{
+		CmdName:     "deploy",
+		CmdSynopsis: "Deploy service",
+		CmdUsage:    "app deploy [flags]",
+		CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+			runCalled = true
+			return nil
+		},
+	}).WithFlags(fs)
+
+	var stdout, stderr bytes.Buffer
+	app := tuikit.NewApp("app", "1.0.0", "Deployment CLI", deployCmd)
+	app.Stdout = &stdout
+	app.Stderr = &stderr
+
+	err := app.Run(context.Background(), []string{"help", "deploy"})
+	assert.NoError(t, err)
+	assert.False(t, runCalled)
+	assert.True(t, strings.Contains(stdout.String(), "-e, --env <string>"))
+}
+
+func TestSOLID_NestedGroupCommand_LSP(t *testing.T) {
+	leaf := &tuikit.FuncCommand{
+		CmdName:     "ls",
+		CmdSynopsis: "List buckets",
+		CmdRun: func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+			return nil
+		},
+	}
+	s3Group := tuikit.NewGroupCommand("s3", "S3 storage operations", leaf)
+	cloudGroup := tuikit.NewGroupCommand("cloud", "Cloud provider operations", s3Group)
+
+	var stdout bytes.Buffer
+	app := tuikit.NewApp("cli", "1.0.0", "Cloud CLI", cloudGroup)
+	app.Stdout = &stdout
+
+	// Requesting help for nested 2nd-level GroupCommand ("cloud s3") must delegate to s3Group.RenderHelp
+	err := app.Run(context.Background(), []string{"help", "cloud", "s3"})
+	assert.NoError(t, err)
+	assert.True(t, strings.Contains(stdout.String(), "s3 — S3 storage operations"))
+	assert.True(t, strings.Contains(stdout.String(), "List buckets"))
+}
+
+func TestSOLID_StylerAndProgressClock_DIP(t *testing.T) {
+	colorStyler := tuikit.NewStyler(true)
+	plainStyler := tuikit.NewStyler(false)
+
+	assert.True(t, strings.Contains(colorStyler.Bold("title"), "\033["))
+	assert.Equal(t, "title", plainStyler.Bold("title"))
+
+	box := tuikit.NewBox("Title", 20).SetStyler(plainStyler).SetAutoPadding(false)
+	box.AddLine("compact")
+	assert.False(t, strings.Contains(box.String(), "\033["))
+	assert.True(t, strings.Contains(box.String(), "│compact"))
+
+	tbl := tuikit.NewTable("COL1", "COL2").SetStyler(plainStyler).SetSeparator(" | ")
+	tbl.AddRow("val1", "val2")
+	assert.True(t, strings.Contains(tbl.String(), "COL1 | COL2"))
+
+	// Deterministic Progress test using injected clock
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	prog := tuikit.NewProgress(
+		tuikit.WithWriter(&out),
+		tuikit.WithTotal(100),
+		tuikit.WithInteractive(true),
+		tuikit.WithStyler(plainStyler),
+		tuikit.WithClock(func() time.Time { return now }),
+	)
+
+	now = now.Add(2 * time.Second)
+	prog.SetCurrent(50)
+	prog.Render()
+
+	rendered := out.String()
+	assert.True(t, strings.Contains(rendered, "50%"))
+	assert.True(t, strings.Contains(rendered, "25/s"))
+	assert.True(t, strings.Contains(rendered, "[ETA: 2s]"))
 }

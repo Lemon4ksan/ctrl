@@ -22,6 +22,13 @@ type CommandGroup struct {
 	Commands []string
 }
 
+// HelpSection represents a custom documentation block rendered in the help screen
+// (e.g., built-in profiles, environment variables, or security modes).
+type HelpSection struct {
+	Title string
+	Lines []string
+}
+
 // App manages the lifecycle, subcommand routing, help formatting, and execution of CLI tools.
 type App struct {
 	Name          string
@@ -29,8 +36,10 @@ type App struct {
 	Description   string
 	Commands      []Command
 	CommandGroups []CommandGroup
+	HelpSections  []HelpSection
 	Examples      []string
 	DefaultCmd    Command
+	Stdin         io.Reader
 	Stdout        io.Writer
 	Stderr        io.Writer
 	cmdMap        map[string]Command
@@ -43,6 +52,7 @@ func NewApp(name, version, description string, commands ...Command) *App {
 		Version:     version,
 		Description: description,
 		cmdMap:      make(map[string]Command),
+		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 	}
@@ -56,6 +66,9 @@ func NewApp(name, version, description string, commands ...Command) *App {
 
 // RegisterCommand registers a command and its aliases.
 func (a *App) RegisterCommand(c Command) *App {
+	if a.cmdMap == nil {
+		a.cmdMap = make(map[string]Command)
+	}
 	a.Commands = append(a.Commands, c)
 	a.cmdMap[c.Name()] = c
 	for _, alias := range c.Aliases() {
@@ -77,7 +90,11 @@ func (a *App) RunCommand(ctx context.Context, name string, args []string, stdout
 		return fmt.Errorf("unknown command %q", name)
 	}
 
-	return cmd.Run(ctx, args, stdout, stderr)
+	err := cmd.Run(ctx, args, stdout, stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+	return err
 }
 
 // Run parses command line arguments and executes the appropriate subcommand.
@@ -108,8 +125,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		if len(args) > 1 {
 			subName := args[1]
 			if cmd, ok := a.cmdMap[subName]; ok {
-				fmt.Fprintf(stdout, "%s — %s\n\nUsage:\n  %s\n", cmd.Name(), cmd.Synopsis(), cmd.Usage())
-				return nil
+				return renderCommandHelp(ctx, cmd, args[2:], stdout)
 			}
 			return fmt.Errorf("unknown command %q for help. Run '%s help' for available commands", subName, a.Name)
 		}
@@ -125,9 +141,11 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	// Direct match against registered command or alias
 	if cmd, ok := a.cmdMap[first]; ok {
 		for _, arg := range args[1:] {
-			if arg == "-h" || arg == "--help" {
-				fmt.Fprintf(stdout, "%s — %s\n\nUsage:\n  %s\n", cmd.Name(), cmd.Synopsis(), cmd.Usage())
-				return nil
+			if arg == "--" {
+				break
+			}
+			if isHelpFlag(arg) {
+				return renderCommandHelp(ctx, cmd, args[1:], stdout)
 			}
 		}
 		err := cmd.Run(ctx, args[1:], stdout, stderr)
@@ -139,10 +157,21 @@ func (a *App) Run(ctx context.Context, args []string) error {
 
 	// Check if flag passed directly without command
 	if strings.HasPrefix(first, "-") && a.DefaultCmd != nil {
-		return a.DefaultCmd.Run(ctx, args, stdout, stderr)
+		err := a.DefaultCmd.Run(ctx, args, stdout, stderr)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
 	}
 
 	return fmt.Errorf("unknown command %q. Run '%s help' for available commands", first, a.Name)
+}
+
+func renderCommandHelp(ctx context.Context, cmd Command, args []string, w io.Writer) error {
+	if hr, ok := cmd.(HelpRenderer); ok {
+		return hr.RenderHelp(ctx, args, w)
+	}
+	return renderSingleCommandHelp(ctx, "", cmd, w)
 }
 
 // PrintUsage renders the application help screen cleanly and naturally without ASCII table grids or color noise.
@@ -159,21 +188,7 @@ func (a *App) PrintUsage(w io.Writer) {
 
 	fmt.Fprintf(w, "Usage:\n  %s <command> [flags] [arguments...]\n\n", a.Name)
 
-	cmdDisplay := func(c Command) string {
-		name := c.Name()
-		if len(c.Aliases()) > 0 {
-			name = fmt.Sprintf("%s, %s", c.Name(), strings.Join(c.Aliases(), ", "))
-		}
-		return name
-	}
-
-	maxLen := 12
-	for _, c := range a.Commands {
-		d := cmdDisplay(c)
-		if len(d) > maxLen && len(d) <= 30 {
-			maxLen = len(d)
-		}
-	}
+	maxLen := calcMaxCommandWidth(a.Commands, 12, 30)
 
 	if len(a.CommandGroups) > 0 {
 		rendered := make(map[string]bool)
@@ -184,7 +199,7 @@ func (a *App) PrintUsage(w io.Writer) {
 			for _, name := range grp.Commands {
 				if cmd, ok := a.cmdMap[name]; ok && !rendered[cmd.Name()] {
 					rendered[cmd.Name()] = true
-					d := cmdDisplay(cmd)
+					d := formatCommandDisplay(cmd)
 					fmt.Fprintf(w, "  %-*s  %s\n", maxLen, d, cmd.Synopsis())
 				}
 			}
@@ -204,7 +219,7 @@ func (a *App) PrintUsage(w io.Writer) {
 		if len(remaining) > 0 {
 			fmt.Fprintf(w, "Additional Commands:\n")
 			for _, cmd := range remaining {
-				d := cmdDisplay(cmd)
+				d := formatCommandDisplay(cmd)
 				fmt.Fprintf(w, "  %-*s  %s\n", maxLen, d, cmd.Synopsis())
 			}
 			fmt.Fprintln(w)
@@ -219,8 +234,18 @@ func (a *App) PrintUsage(w io.Writer) {
 		})
 
 		for _, cmd := range sortedCmds {
-			d := cmdDisplay(cmd)
+			d := formatCommandDisplay(cmd)
 			fmt.Fprintf(w, "  %-*s  %s\n", maxLen, d, cmd.Synopsis())
+		}
+		fmt.Fprintln(w)
+	}
+
+	for _, sec := range a.HelpSections {
+		if sec.Title != "" {
+			fmt.Fprintf(w, "%s:\n", sec.Title)
+		}
+		for _, line := range sec.Lines {
+			fmt.Fprintf(w, "  %s\n", line)
 		}
 		fmt.Fprintln(w)
 	}

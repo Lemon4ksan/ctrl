@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +73,22 @@ func WithInteractive(interactive bool) ProgressOption {
 	}
 }
 
+// WithClock configures a custom time source for deterministic testing of throughput and ETA.
+func WithClock(nowFunc func() time.Time) ProgressOption {
+	return func(p *Progress) {
+		if nowFunc != nil {
+			p.clock = nowFunc
+		}
+	}
+}
+
+// WithStyler configures an isolated [Styler] for rendering the progress bar.
+func WithStyler(s Styler) ProgressOption {
+	return func(p *Progress) {
+		p.styler = s
+	}
+}
+
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // Progress manages live terminal feedback, throughput, ETA calculations, and progress rendering.
@@ -88,6 +103,8 @@ type Progress struct {
 	barWidth    int
 	isTTY       bool
 	ttyForced   bool
+	clock       func() time.Time
+	styler      Styler
 	startTime   time.Time
 	lastRender  time.Time
 	lastLogTime time.Time
@@ -104,14 +121,17 @@ func NewProgress(opts ...ProgressOption) *Progress {
 		writer:      os.Stdout,
 		barWidth:    20,
 		unit:        UnitCount,
+		clock:       time.Now,
+		styler:      DefaultStyler(),
 		throttle:    60 * time.Millisecond,
 		logInterval: 4 * time.Second,
-		startTime:   time.Now(),
 	}
 
 	for _, opt := range opts {
 		opt(p)
 	}
+
+	p.startTime = p.clock()
 
 	if !p.ttyForced {
 		p.isTTY = ProbeTerminal(p.writer)
@@ -171,7 +191,7 @@ func (p *Progress) renderLocked(force bool) {
 		return
 	}
 
-	now := time.Now()
+	now := p.clock()
 	if !force && p.lastRender.Add(p.throttle).After(now) {
 		return
 	}
@@ -183,13 +203,13 @@ func (p *Progress) renderLocked(force bool) {
 	}
 
 	if p.isTTY {
-		p.renderTTY(now, elapsed)
+		p.renderTTY(elapsed)
 	} else {
 		p.renderNonTTY(now, elapsed, force)
 	}
 }
 
-func (p *Progress) renderTTY(now time.Time, elapsed float64) {
+func (p *Progress) renderTTY(elapsed float64) {
 	p.spinnerIdx = (p.spinnerIdx + 1) % len(spinnerFrames)
 	spin := spinnerFrames[p.spinnerIdx]
 
@@ -203,13 +223,10 @@ func (p *Progress) renderTTY(now time.Time, elapsed float64) {
 	}
 
 	if p.total > 0 {
-		ratio := float64(p.current) / float64(p.total)
-		if ratio > 1.0 {
-			ratio = 1.0
-		}
+		ratio := min(float64(p.current)/float64(p.total), 1.0)
 		pct := int(ratio * 100)
 
-		bar := RenderBar(ratio, p.barWidth)
+		bar := p.styler.RenderBar(ratio, p.barWidth)
 		sb.WriteString("[")
 		sb.WriteString(bar)
 		fmt.Fprintf(&sb, "] %3d%% ", pct)
@@ -365,57 +382,4 @@ func (pr *ProgressReader) Read(buf []byte) (int, error) {
 		pr.p.Add(int64(n))
 	}
 	return n, err
-}
-
-// FormatBytes formats byte counts into human-readable strings (e.g. "4.2 MB", "512 KB").
-func FormatBytes(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-func formatNumber(n int64) string {
-	if n < 0 {
-		return strconv.FormatInt(n, 10)
-	}
-	s := strconv.FormatInt(n, 10)
-	if len(s) <= 3 {
-		return s
-	}
-
-	var res []byte
-	rem := len(s) % 3
-	if rem > 0 {
-		res = append(res, s[:rem]...)
-	}
-	for i := rem; i < len(s); i += 3 {
-		if len(res) > 0 {
-			res = append(res, ',')
-		}
-		res = append(res, s[i:i+3]...)
-	}
-	return string(res)
-}
-
-func formatDuration(d time.Duration) string {
-	d = d.Round(time.Second)
-	s := int(d.Seconds())
-	if s < 60 {
-		return fmt.Sprintf("%ds", s)
-	}
-	m := s / 60
-	s %= 60
-	if m < 60 {
-		return fmt.Sprintf("%dm %02ds", m, s)
-	}
-	h := m / 60
-	m %= 60
-	return fmt.Sprintf("%dh %02dm", h, m)
 }

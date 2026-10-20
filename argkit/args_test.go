@@ -184,6 +184,43 @@ func TestArgKit_StringSliceFlag(t *testing.T) {
 	}
 }
 
+func TestArgKit_VarAndFormatFlags(t *testing.T) {
+	fs := flag.NewFlagSet("test_var", flag.ContinueOnError)
+	var tags argkit.StringSliceFlag
+	var count uint
+	var limit uint64
+	var emptyUsage string
+
+	argkit.Var(fs, &tags, "tag", "t", "tag filter")
+	argkit.UintVar(fs, &count, "count", "c", 5, "item count")
+	argkit.Uint64Var(fs, &limit, "limit", "L", 100, "byte limit")
+	argkit.StringVar(fs, &emptyUsage, "empty", "e", "", "")
+
+	pos, err := argkit.ParseInterspersedFlags(
+		fs,
+		[]string{"-t=v1", "--tag", "v2", "-c", "10", "-L=200", "-e=ok", "pos1"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tags.String() != "v1,v2" {
+		t.Errorf("expected tags v1,v2, got %q", tags.String())
+	}
+	if count != 10 || limit != 200 || emptyUsage != "ok" {
+		t.Errorf("unexpected values: count=%d limit=%d empty=%q", count, limit, emptyUsage)
+	}
+	if len(pos) != 1 || pos[0] != "pos1" {
+		t.Errorf("unexpected positionals: %v", pos)
+	}
+
+	formatted := argkit.FormatFlags(fs)
+	for _, want := range []string{"-t, --tag <value>", "-c, --count <uint>", "-L, --limit <uint>", "-e, --empty <string>"} {
+		if !strings.Contains(formatted, want) {
+			t.Errorf("expected FormatFlags to contain %q, got:\n%s", want, formatted)
+		}
+	}
+}
+
 func TestArgKit_Levenshtein(t *testing.T) {
 	tests := []struct {
 		s1       string

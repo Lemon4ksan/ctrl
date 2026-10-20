@@ -19,6 +19,8 @@ const (
 	AlignCenter
 )
 
+var _ Renderer = (*Table)(nil)
+
 // Table manages columnar data formatting with guaranteed pixel-perfect alignment.
 type Table struct {
 	Headers    []string
@@ -26,6 +28,8 @@ type Table struct {
 	MinWidths  []int
 	Rows       [][]string
 	Indent     int
+	Separator  string
+	styler     Styler
 }
 
 // NewTable constructs a new Table with the specified header titles.
@@ -38,6 +42,8 @@ func NewTable(headers ...string) *Table {
 		Alignments: alignments,
 		MinWidths:  minWidths,
 		Indent:     2,
+		Separator:  "  ",
+		styler:     DefaultStyler(),
 	}
 }
 
@@ -62,6 +68,18 @@ func (t *Table) SetMinWidth(col, width int) *Table {
 // SetIndent sets the left margin spacing.
 func (t *Table) SetIndent(spaces int) *Table {
 	t.Indent = spaces
+	return t
+}
+
+// SetSeparator configures the column separator string (defaults to two spaces "  ").
+func (t *Table) SetSeparator(sep string) *Table {
+	t.Separator = sep
+	return t
+}
+
+// SetStyler configures an isolated [Styler] for rendering table headers and dividers.
+func (t *Table) SetStyler(s Styler) *Table {
+	t.styler = s
 	return t
 }
 
@@ -108,7 +126,12 @@ func (t *Table) Render(w io.Writer) error {
 		}
 	}
 
-	indentStr := strings.Repeat(" ", t.Indent)
+	indentStr := strings.Repeat(" ", max(t.Indent, 0))
+	sep := t.Separator
+	if sep == "" {
+		sep = "  "
+	}
+	sepWidth := VisibleWidth(sep)
 
 	var buf bytes.Buffer
 
@@ -118,10 +141,10 @@ func (t *Table) Render(w io.Writer) error {
 
 		for i, h := range t.Headers {
 			aligned := t.formatCell(h, widths[i], t.getAlignment(i))
-			buf.WriteString(Bold(aligned))
+			buf.WriteString(t.styler.Bold(aligned))
 
 			if i < colCount-1 {
-				buf.WriteString("  ")
+				buf.WriteString(sep)
 			}
 		}
 
@@ -129,15 +152,15 @@ func (t *Table) Render(w io.Writer) error {
 
 		// 2. Render Divider
 		totalWidth := 0
-		for i, w := range widths {
-			totalWidth += w
+		for i, width := range widths {
+			totalWidth += width
 			if i < colCount-1 {
-				totalWidth += 2
+				totalWidth += sepWidth
 			}
 		}
 
 		buf.WriteString(indentStr)
-		buf.WriteString(Gray(strings.Repeat("─", totalWidth)))
+		buf.WriteString(t.styler.Gray(strings.Repeat("─", totalWidth)))
 		buf.WriteString("\n")
 	}
 
@@ -155,7 +178,7 @@ func (t *Table) Render(w io.Writer) error {
 			buf.WriteString(aligned)
 
 			if i < colCount-1 {
-				buf.WriteString("  ")
+				buf.WriteString(sep)
 			}
 		}
 

@@ -5,13 +5,17 @@
 package tuikit
 
 import (
-	"fmt"
 	"math"
 	"strings"
 )
 
 // RenderBar generates a proportional ASCII/Unicode filled progress bar (e.g. ████████░░░░░░░░).
 func RenderBar(ratio float64, width int) string {
+	return DefaultStyler().RenderBar(ratio, width)
+}
+
+// RenderBar generates a proportional ASCII/Unicode filled progress bar using s's color policy.
+func (s Styler) RenderBar(ratio float64, width int) string {
 	if width <= 0 {
 		return ""
 	}
@@ -23,10 +27,9 @@ func RenderBar(ratio float64, width int) string {
 	}
 
 	filled := min(int(math.Round(ratio*float64(width))), width)
-
 	empty := width - filled
 
-	return Cyan(strings.Repeat("█", filled)) + Gray(strings.Repeat("░", empty))
+	return s.Cyan(strings.Repeat("█", filled)) + s.Gray(strings.Repeat("░", empty))
 }
 
 var sparklineGlyphs = []rune{' ', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
@@ -71,31 +74,4 @@ func RenderSparkline(values []float64) string {
 	}
 
 	return sb.String()
-}
-
-// TaxStage represents a single phase in latency or throughput breakdown.
-type TaxStage struct {
-	Name     string
-	Duration string
-	Share    string
-	Ratio    float64
-}
-
-// RenderTaxDecomposition formats a clean latency/share decomposition card.
-func RenderTaxDecomposition(stages []TaxStage, barWidth int) string {
-	if barWidth <= 0 {
-		barWidth = 30
-	}
-
-	box := NewBox("", 75)
-	box.AddLine(fmt.Sprintf("%-16s %-14s %-10s %s", "Stage", "Duration", "Share", "Proportional Breakdown"))
-	box.AddDivider()
-
-	for _, st := range stages {
-		bar := RenderBar(st.Ratio, barWidth)
-		line := fmt.Sprintf("%-16s %-14s %-10s %s", st.Name, st.Duration, st.Share, bar)
-		box.AddLine(line)
-	}
-
-	return box.String()
 }

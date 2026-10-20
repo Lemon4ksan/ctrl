@@ -1,2 +1,4 @@
-github.com/lemon4ksan/foundation v0.2.0 h1:DwAMOE70fxPqWPIGVoTa1080AUfa0fAxEKilDZhAdD4=
-github.com/lemon4ksan/foundation v0.2.0/go.mod h1:8/8JZihcnJnnv03Pu45v48gA6Qwgr3HNLlz0Y3lkkpo=
+github.com/lemon4ksan/foundation v0.2.3-0.20261020155430-74d98b19c7e9 h1:AE3Jo1opkynNPkWjfrA/ZBX6MgkzKFAevI41Qnw3BqA=
+github.com/lemon4ksan/foundation v0.2.3-0.20261020155430-74d98b19c7e9/go.mod h1:8/8JZihcnJnnv03Pu45v48gA6Qwgr3HNLlz0Y3lkkpo=
+golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+golang.org/x/sys v0.49.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=

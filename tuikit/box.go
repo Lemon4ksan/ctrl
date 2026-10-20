@@ -74,6 +74,8 @@ type boxEntry struct {
 	right     string
 }
 
+var _ Renderer = (*Box)(nil)
+
 // Box formats enclosed text cards and panels with guaranteed straight right borders.
 type Box struct {
 	Width       int
@@ -82,6 +84,7 @@ type Box struct {
 	Indent      int
 	entries     []boxEntry
 	AutoPadding bool
+	styler      Styler
 }
 
 // NewBox creates a new rectangular box with the given title and inner width constraint.
@@ -92,6 +95,7 @@ func NewBox(title string, innerWidth int) *Box {
 		Style:       BorderSingle,
 		Indent:      2,
 		AutoPadding: true,
+		styler:      DefaultStyler(),
 	}
 }
 
@@ -104,6 +108,18 @@ func (b *Box) SetStyle(s BorderStyle) *Box {
 // SetIndent configures the left margin indentation.
 func (b *Box) SetIndent(spaces int) *Box {
 	b.Indent = spaces
+	return b
+}
+
+// SetAutoPadding enables or disables 1-space inner horizontal padding between borders and content.
+func (b *Box) SetAutoPadding(enabled bool) *Box {
+	b.AutoPadding = enabled
+	return b
+}
+
+// SetStyler configures an isolated [Styler] for rendering the box title and borders.
+func (b *Box) SetStyler(s Styler) *Box {
+	b.styler = s
 	return b
 }
 
@@ -128,28 +144,34 @@ func (b *Box) AddRow(left, right string) *Box {
 // Render writes the formatted box card to the writer.
 func (b *Box) Render(w io.Writer) error {
 	innerW := b.Width
+	padWidth := 0
+	padStr := ""
+	if b.AutoPadding {
+		padWidth = 2
+		padStr = " "
+	}
 
 	// Auto-compute width if not specified
 	if innerW <= 0 {
 		maxLen := VisibleWidth(b.Title)
 		for _, e := range b.entries {
-			var w int
+			var width int
 			switch e.entryType {
 			case entryRow:
-				w = VisibleWidth(e.left) + VisibleWidth(e.right) + 2
+				width = VisibleWidth(e.left) + VisibleWidth(e.right) + 2
 			case entryLine:
-				w = VisibleWidth(e.left)
+				width = VisibleWidth(e.left)
 			}
 
-			if w > maxLen {
-				maxLen = w
+			if width > maxLen {
+				maxLen = width
 			}
 		}
 
-		innerW = maxLen + 2
+		innerW = maxLen + padWidth
 	}
 
-	indentStr := strings.Repeat(" ", b.Indent)
+	indentStr := strings.Repeat(" ", max(b.Indent, 0))
 
 	var buf bytes.Buffer
 
@@ -162,7 +184,7 @@ func (b *Box) Render(w io.Writer) error {
 		if titleVis+3 <= innerW {
 			buf.WriteString(b.Style.Horizontal)
 			buf.WriteString(" ")
-			buf.WriteString(Bold(b.Title))
+			buf.WriteString(b.styler.Bold(b.Title))
 			buf.WriteString(" ")
 
 			rem := innerW - (titleVis + 3)
@@ -180,6 +202,7 @@ func (b *Box) Render(w io.Writer) error {
 	buf.WriteString("\n")
 
 	// 2. Entries
+	avail := max(innerW-padWidth, 0)
 	for _, e := range b.entries {
 		switch e.entryType {
 		case entryDivider:
@@ -192,36 +215,32 @@ func (b *Box) Render(w io.Writer) error {
 		case entryRow:
 			buf.WriteString(indentStr)
 			buf.WriteString(b.Style.Vertical)
-			buf.WriteString(" ")
+			buf.WriteString(padStr)
 
 			leftVis := VisibleWidth(e.left)
 			rightVis := VisibleWidth(e.right)
-			avail := innerW - 2
-
 			gap := max(avail-(leftVis+rightVis), 1)
 
 			buf.WriteString(e.left)
 			buf.WriteString(strings.Repeat(" ", gap))
 			buf.WriteString(e.right)
-			buf.WriteString(" ")
+			buf.WriteString(padStr)
 			buf.WriteString(b.Style.Vertical)
 			buf.WriteString("\n")
 
 		case entryLine:
 			buf.WriteString(indentStr)
 			buf.WriteString(b.Style.Vertical)
-			buf.WriteString(" ")
+			buf.WriteString(padStr)
 
 			lineVis := VisibleWidth(e.left)
-			avail := innerW - 2
-
 			buf.WriteString(e.left)
 
 			if lineVis < avail {
 				buf.WriteString(strings.Repeat(" ", avail-lineVis))
 			}
 
-			buf.WriteString(" ")
+			buf.WriteString(padStr)
 			buf.WriteString(b.Style.Vertical)
 			buf.WriteString("\n")
 		}
