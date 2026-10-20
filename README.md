@@ -1,38 +1,52 @@
-<div align="center">
-
-<img src="assets/logo.svg" width="120" height="120" alt="ctrl" />
+<img src="assets/logo.svg" align="right" width="128" height="128" alt="ctrl logo" />
 
 # ctrl
-
-### Zero-Dependency CLI, TUI, MCP & UI Automation Framework for Go
 
 _«In the terminal, latency and clutter are the default — let ctrl be your sharp, zero-dependency command surface»_
 
 [![Go Version](https://img.shields.io/badge/go-1.27%2B-007d9c?logo=go&logoColor=white&style=flat-square)](https://go.dev/)
 [![Go Reference](https://img.shields.io/badge/godoc-reference-007d9c?style=flat-square)](https://pkg.go.dev/github.com/lemon4ksan/ctrl)
+[![Architecture](https://img.shields.io/badge/arch-Zero--Alloc%20%7C%20POSIX%20%7C%20MCP-0d9488?style=flat-square)](#rules)
+[![Ecosystem](https://img.shields.io/badge/ecosystem-foundation-0284c7?style=flat-square)](https://github.com/lemon4ksan/foundation)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square)](LICENSE)
-[![Zero-Dependencies](https://img.shields.io/badge/dependencies-0%20external-brightgreen?style=flat-square)](#features--architectural-pillars)
-[![Zero-Alloc](https://img.shields.io/badge/memory-0%20B%2Fop%20%7C%200%20allocs-success?style=flat-square)](#performance--zero-allocation-guarantees)
-[![Ecosystem](https://img.shields.io/badge/ecosystem-foundation-orange?style=flat-square)](https://github.com/lemon4ksan/foundation)
-[![POSIX Semantics](https://img.shields.io/badge/POSIX-Flags%20%26%20Clumping-blueviolet?style=flat-square)](argkit)
 
-**ctrl** is a zero-dependency CLI application framework, terminal UI toolkit, Model Context Protocol (`mcpkit`) router, and Windows UI Automation (`uiakit`) engine for Go. It provides full POSIX flag parsing with short-flag clumping and attached values, subcommand routing with command grouping, terminal capability sniffing, terminal UI styling primitives (tables, boxes, progress bars, sparklines, badges), fluent MCP v1.0 tool builders, and zero-allocation COM accessibility traversal.
+**[English](README.md)** | **[Русский](README_RU.md)** | **[Architecture Concept](docs/CONCEPT.md)**
 
-#### English • [Русский](README_RU.md) • [Architecture Concept](docs/CONCEPT.md)
+Command-line application framework, terminal UI toolkit (`tuikit`), Model Context Protocol v1.0 router (`mcpkit`), and Windows UI Automation engine (`uiakit`) for Go 1.27+. Built directly on top of the Go standard library and [`foundation`](https://github.com/lemon4ksan/foundation) with zero third-party dependencies.
 
-</div>
+## Design tradeoffs
+
+| Standard library / `cobra` / `lipgloss` | What `ctrl` does instead | What you pay |
+| :--- | :--- | :--- |
+| `flag.FlagSet` halts at the first positional argument, rejects `-la` short-flag clumping, and offers no typo hints | [`argkit`](argkit) pre-normalizes shell tokens and decomposes POSIX short/long flags on the stack before feeding `flag.FlagSet`, with stack-allocated Levenshtein suggestions (`0 allocs/op`) | Levenshtein stack buffers cap typo distance calculation at flag names up to 64 runes |
+| Full-screen TUI frameworks force an Elm event loop and alternate screen buffer for simple CLI tools | [`tuikit`](tuikit) streams tables, boxes, progress bars, sparklines, and badges directly to an `io.Writer`, automatically degrading to plain periodic logs when `NO_COLOR` is set or `stdout` is piped | Not an interactive full-screen forms/window manager; designed for streaming CLI output and status surfaces |
+| Hand-written MCP servers require nested `map[string]any` JSON schemas and manual JSON-RPC framing | [`mcpkit`](mcpkit) provides a fluent `NewTool` builder, generic `TypedHandler[T]` adapters, and STDIO / HTTP+SSE transports with 16 MiB scanner buffers and token-bucket rate limiting | Targets the MCP `2024-11-05` (`v1.0`) wire contract rather than arbitrary JSON-RPC dialects |
+| Accessibility inspection on Windows usually requires C++/C# wrappers or CGO | [`uiakit`](uiakit) invokes `CUIAutomation8` (`IUIAutomation2`) COM vtables directly via `foundation/silicon/comkit` with bulk `IUIAutomationCacheRequest` prefetching | Windows-specific (`UIAutomationCore.dll`); non-Windows targets compile cleanly against a no-op stub |
+
+## Rules
+
+1. **Zero third-party dependencies.** `ctrl` depends only on the Go standard library and [`foundation`](https://github.com/lemon4ksan/foundation). No reflection-heavy struct tag mappers or transitive CLI dependency trees.
+2. **Zero-allocation hot paths.** Monospaced width calculation (`VisibleWidth`), ANSI stripping, `LinesSeq` push iteration, and Levenshtein flag suggestions execute with `0 B/op`.
+3. **Explicit I/O and styling state.** Commands receive `(ctx, args, stdout, stderr)` explicitly, and `tuikit.Styler` instances carry isolated color policy without mutating global state.
+4. **Automatic TTY & CI degradation.** Live progress bars and ANSI sequences probe terminal capabilities (`ProbeTerminal`) and fall back to clean, machine-parsable lines in non-interactive pipes.
+
+## Layout
+
+- [`ctrl` (root)](ctrl.go) — Top-level facade re-exporting `App`, `Command`, `GroupCommand`, `HubCommand`, `ParseInterspersedFlags`, `Table`, `Box`, `Progress`, and status badges.
+- [`argkit`](argkit) — POSIX argument engine: interspersed flags and positionals (`app -v src/ -o=bin dst/`), short-flag clumping (`-la` $\to$ `-l -a`), attached values (`-I*.tmp` $\to$ `-I=*.tmp`), `--` terminator, PowerShell/CMD quote repair (`NormalizeArgs`), and fuzzy typo suggestions.
+- [`tuikit`](tuikit) — Subcommand router (`App`, `CommandGroup`), terminal capability prober (`ProbeTerminal`), auto-aligned `Table`, bordered `Box` (`BorderSingle`, `BorderRounded`, `BorderHeavy`), live `Progress` with throughput/ETA, inline sparklines (`RenderSparkline`: ` ▂▃▅▆▇█`), and pipeline badges.
+- [`mcpkit`](mcpkit) — Model Context Protocol (`2024-11-05`) server over STDIO and HTTP/SSE with Bearer auth, TLS, rate limiting, fluent schema builders (`NewTool`, `Required`, `Min`, `Max`, `Default`), and generic `TypedHandler[T]` / `TextHandler[T]` adapters.
+- [`uiakit`](uiakit) — Pure-Go Windows COM UI Automation (`CUIAutomation8`) engine extracting Win32, WPF, WinUI 3, Qt, and Chromium `RootWebArea` trees into Set-of-Marks Markdown digests, plus background `InvokePattern`, `ValuePattern`, `TogglePattern`, and `SelectionItemPattern` execution.
 
 ## Installation
-
-`ctrl` requires Go version `1.27` or higher.
 
 ```bash
 go get github.com/lemon4ksan/ctrl
 ```
 
-## Quickstart
+## Usage
 
-Build a CLI tool with subcommands, POSIX flag clumping, and styled terminal output in minutes:
+### CLI Router with POSIX Flag Clumping & Styled Output
 
 ```go
 package main
@@ -45,11 +59,10 @@ import (
 	"os"
 
 	"github.com/lemon4ksan/ctrl"
-	"github.com/lemon4ksan/ctrl/tuikit"
 )
 
 func main() {
-	app := ctrl.NewApp("seal", ctrl.Version, "High-performance compression & archiving utility",
+	app := ctrl.NewApp("seal", ctrl.Version, "Archive & compression utility",
 		ctrl.NewCommand("create", "Create an archive from files", "seal create [flags] <archive> <files...>",
 			func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -60,13 +73,12 @@ func main() {
 				if err != nil {
 					return err
 				}
-
 				if len(posArgs) < 2 {
 					return fmt.Errorf("archive path and target files required")
 				}
 
-				fmt.Fprintf(stdout, "%s Creating archive %s (level %d, verbose=%v)\n",
-					tuikit.BadgePass(), posArgs[0], *level, *verbose)
+				fmt.Fprintf(stdout, "%s Creating %s (level=%d, verbose=%v)\n",
+					ctrl.BadgePass(), posArgs[0], *level, *verbose)
 				return nil
 			},
 			"c", "add",
@@ -74,85 +86,64 @@ func main() {
 	)
 
 	app.CommandGroups = []ctrl.CommandGroup{
-		{
-			Title:    "Core Operations",
-			Commands: []string{"create"},
-		},
+		{Title: "Core Operations", Commands: []string{"create"}},
 	}
 
 	if err := app.Run(context.Background(), os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "%s %v\n", tuikit.BadgeFail(), err)
+		fmt.Fprintf(os.Stderr, "%s %v\n", ctrl.BadgeFail(), err)
 		os.Exit(1)
 	}
 }
 ```
 
-## Features & Architectural Pillars
+### Fluent MCP v1.0 Tool Server (`mcpkit`)
 
-| Capability | Standard Library (`flag`) | `spf13/cobra` | `ctrl` |
-| :--- | :---: | :---: | :---: |
-| **External Dependencies** | **0** | ~15+ transitive | **0** |
-| **Interspersed Flags** | ✗ (halts at first positional) | ✓ | **✓ (`argkit`)** |
-| **Short Flag Clumping (`-la`)** | ✗ | ✓ | **✓ (`argkit`)** |
-| **Attached Values (`-I*.tmp`)** | ✗ | ✓ | **✓ (`argkit`)** |
-| **Fuzzy Typo Suggestions** | ✗ | ✓ | **✓ (Levenshtein)** |
-| **Subcommand Routing** | ✗ | ✓ | **✓ (`tuikit.App`)** |
-| **Terminal Capability Sniffing** | ✗ | ✗ (separate lib) | **✓ (`tuikit.ProbeTerminal`)** |
-| **`NO_COLOR` & TTY Awareness** | ✗ | ✗ | **✓ (Built-in)** |
-| **Tables, Boxes, Progress Bars** | ✗ | ✗ (needs lipgloss) | **✓ (`tuikit`)** |
+```go
+package main
 
-## Subpackages Overview
+import (
+	"context"
 
-### 1. [`argkit`](argkit) — POSIX Argument & Flag Engine
-- **Interspersed Arguments**: Mix options and positional arguments freely (`app -v src/ -o=bin dst/`).
-- **Short Flag Clumping**: `-la` automatically unpacks into `-l` and `-a`.
-- **Attached Values**: `-I*.tmp` maps directly to `-I=*.tmp`.
-- **POSIX Terminator**: `--` treats all subsequent tokens as raw positional arguments.
-- **Fuzzy Suggestions**: Suggests corrections for mistyped flags using stack-allocated Levenshtein distance (`"flag provided but not defined: --timout (did you mean: --timeout?)"`).
-- **Shell Normalization**: Resolves argument splitting bugs caused by PowerShell and CMD shell tokenizers (`argkit.NormalizeArgs`).
+	"github.com/lemon4ksan/ctrl/mcpkit"
+)
 
-### 2. [`tuikit`](tuikit) — Terminal UI & CLI App Router
-- **Subcommand App Router (`tuikit.App`)**: Handles command routing, aliases, grouped help listings, and default fallback commands.
-- **Terminal Prober (`tuikit.ProbeTerminal`)**: Sniffs TTY interactive status and enables Virtual Terminal escape processing on Windows 10/11.
-- **Auto-Aligned Tables (`tuikit.Table`)**: Pixel-perfect column formatting with left, right, and center alignments.
-- **Bordered Boxes (`tuikit.Box`)**: Clean bordered card containers (`BorderSingle`, `BorderRounded`, `BorderHeavy`) with guaranteed straight right borders.
-- **Live Progress & Throughput (`tuikit.Progress`)**: Real-time progress bars with throughput rate (MB/s or items/s) and ETA calculations. Gracefully falls back to periodic summary logs in CI/CD or piped output.
-- **Sparklines & Trend Graphs (`tuikit.RenderSparkline`)**: Renders inline trend graphs from floating-point sequences (` ▂▃▅▆▇█`).
-- **Badges & Pipeline Steps**: Universal status tags (`BadgePass`, `BadgeFail`, `BadgeWarn`, `BadgeActive`) and numbered pipeline stages (`RenderStep`).
+type ExecArgs struct {
+	Command   string `json:"command"`
+	TimeoutMS int    `json:"timeout_ms"`
+}
 
-### 3. [`mcpkit`](mcpkit) — Model Context Protocol v1.0 Router & Fluent Builders
-- **JSON-RPC 2.0 STDIO & HTTP/SSE Transports**: Full MCP `2024-11-05` server with 16 MiB scanner buffers, Bearer auth, TLS termination, and token-bucket rate limiting.
-- **Fluent Schema Builder (`mcpkit.NewTool`)**: Construct JSON Schema tool definitions with functional `PropOption` modifiers (`mcpkit.Required()`, `mcpkit.Min()`, `mcpkit.Max()`, `mcpkit.MinItems()`, `mcpkit.Default()`) and zero nested `map[string]any` boilerplate.
-- **Typed & Text Handlers**: Generic `TypedHandler[T]`, `LenientHandler[T]`, `TextHandler[T]`, `StrictTextHandler[T]`, and `NoArgsHandler` adapters.
+func main() {
+	srv := mcpkit.NewServer("agent-tools", "1.0.0")
 
-### 4. [`uiakit`](uiakit) — Windows COM UI Automation (`CUIAutomation8`)
-- **Zero-Allocation COM Traversal**: Direct `IUIAutomation2` vtable invocation powered by `foundation/silicon/comkit` (`Call0`–`Call5`) with `IUIAutomationCacheRequest` bulk property prefetching.
-- **Set-of-Marks & DOM Extraction**: Enumerates Win32, WPF, WinUI 3, Qt, and Chromium/Electron `RootWebArea` accessibility trees into compact Markdown digests.
-- **Action Patterns**: Native `IUIAutomationInvokePattern`, `ValuePattern`, `TogglePattern`, and `SelectionItemPattern` execution without cursor theft.
+	tool := mcpkit.NewTool("exec_command", "Execute a shell command").
+		String("command", "Command line to run", mcpkit.Required()).
+		Int("timeout_ms", "Execution timeout in milliseconds", mcpkit.Min(100), mcpkit.Default(5000)).
+		Build()
 
-## Performance & Zero-Allocation Guarantees
+	srv.RegisterTool(tool, mcpkit.TextHandler(func(ctx context.Context, args ExecArgs) (string, error) {
+		return "executed: " + args.Command, nil
+	}))
 
-Tested under parallel CPU load:
-- **`VisibleWidth`**: Monospaced width calculation runs without heap allocations.
-- **`Levenshtein` & Typo Suggest**: Uses stack-allocated arrays for strings up to 64 runes, guaranteeing **0 allocs/op** during interactive CLI flag validation.
-- **`LinesSeq`**: Go 1.27 push iterator over string lines without intermediate slice allocations.
+	_ = srv.ServeStdio(context.Background())
+}
+```
 
-## Contributing & Development
+## Verification
 
 ```bash
 # Run unit tests
 make test
 
-# Run tests with race detector
+# Run test suite with data race detector
 make race
 
-# Run code linters
-make lint
-
-# Run benchmark suite
+# Run benchmarks and verify 0 allocs/op on hot paths
 make bench
+
+# Run linters
+make lint
 ```
 
-## 📄 License
+## License
 
-This project is licensed under the **BSD 3-Clause License**. See the [LICENSE](LICENSE) file for details.
+BSD 3-Clause License. See [LICENSE](LICENSE) for full text.

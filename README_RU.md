@@ -1,38 +1,52 @@
-<div align="center">
-
-<img src="assets/logo.svg" width="120" height="120" alt="ctrl" />
+<img src="assets/logo.svg" align="right" width="128" height="128" alt="ctrl logo" />
 
 # ctrl
-
-### Фреймворк CLI, TUI, MCP и UI Automation для Go без внешних зависимостей
 
 _«В терминале задержка и визуальный шум — это состояние по умолчанию. Пусть ctrl станет вашей точной командной поверхностью без единой лишней зависимости»_
 
 [![Go Version](https://img.shields.io/badge/go-1.27%2B-007d9c?logo=go&logoColor=white&style=flat-square)](https://go.dev/)
 [![Go Reference](https://img.shields.io/badge/godoc-reference-007d9c?style=flat-square)](https://pkg.go.dev/github.com/lemon4ksan/ctrl)
+[![Architecture](https://img.shields.io/badge/arch-Zero--Alloc%20%7C%20POSIX%20%7C%20MCP-0d9488?style=flat-square)](#правила)
+[![Ecosystem](https://img.shields.io/badge/ecosystem-foundation-0284c7?style=flat-square)](https://github.com/lemon4ksan/foundation)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue?style=flat-square)](LICENSE)
-[![Zero-Dependencies](https://img.shields.io/badge/dependencies-0%20external-brightgreen?style=flat-square)](#сравнение-возможностей)
-[![Zero-Alloc](https://img.shields.io/badge/memory-0%20B%2Fop%20%7C%200%20allocs-success?style=flat-square)](#производительность-и-гарантии-памяти)
-[![Ecosystem](https://img.shields.io/badge/ecosystem-foundation-orange?style=flat-square)](https://github.com/lemon4ksan/foundation)
-[![POSIX Semantics](https://img.shields.io/badge/POSIX-Flags%20%26%20Clumping-blueviolet?style=flat-square)](argkit)
 
-**ctrl** — фреймворк командной строки, терминального интерфейса (TUI), маршрутизатор Model Context Protocol (`mcpkit`) и движок Windows UI Automation (`uiakit`) для Go. Предоставляет полноценный POSIX-парсинг флагов (склеивание коротких флагов, прикреплённые значения, перемежающиеся аргументы), маршрутизацию подкоманд с логическими группами, автоопределение возможностей TTY, визуальные компоненты (таблицы, рамки, прогресс-бары, спарклайны, бейджи), декларативный конструктор MCP-схем и zero-allocation обход COM-дерева доступности.
+**[English](README.md)** | **[Русский](README_RU.md)** | **[Концепция архитектуры](docs/CONCEPT.md)**
 
-#### [English](README.md) • Русский • [Концепция архитектуры](docs/CONCEPT.md)
+Фреймворк командной строки, терминального интерфейса (`tuikit`), маршрутизатор Model Context Protocol v1.0 (`mcpkit`) и движок Windows UI Automation (`uiakit`) для Go 1.27+. Построен поверх стандартной библиотеки Go и [`foundation`](https://github.com/lemon4ksan/foundation) без сторонних зависимостей.
 
-</div>
+## Инженерные компромиссы
+
+| Стандартная библиотека / `cobra` / `lipgloss` | Что делает `ctrl` | Цена решения |
+| :--- | :--- | :--- |
+| `flag.FlagSet` останавливается на первом позиционном аргументе, не поддерживает склеивание `-la` и не подсказывает опечатки | [`argkit`](argkit) нормализует токены оболочки и разбирает короткие/длинные POSIX-флаги на стеке перед передачей в `flag.FlagSet`, предлагая исправления по Левенштейну (`0 allocs/op`) | Стековые буферы расстояния Левенштейна ограничены именами флагов длиной до 64 рун |
+| Полноэкранные TUI-фреймворки навязывают цикл событий Elm и захват экрана даже для простых CLI-утилит | [`tuikit`](tuikit) потоково рендерит таблицы, карточки, прогресс-бары, спарклайны и бейджи напрямую в `io.Writer`, автоматически переключаясь на чистый лог при `NO_COLOR` или перенаправлении в пайп | Не предназначен для полноэкранных диалоговых окон с альтернативным буфером терминала |
+| Ручная реализация MCP-сервера требует вложенных `map[string]any` для JSON Schema и ручного разбора JSON-RPC | [`mcpkit`](mcpkit) предоставляет декларативный конструктор `NewTool`, обобщённые адаптеры `TypedHandler[T]` и транспорты STDIO / HTTP+SSE с буфером 16 МБ и Token Bucket лимитером | Ориентирован строго на спецификацию MCP `2024-11-05` (`v1.0`), а не на произвольные диалекты JSON-RPC |
+| Инспекция дерева доступности в Windows обычно требует обёрток на C++/C# или CGO | [`uiakit`](uiakit) вызывает виртуальные таблицы COM `CUIAutomation8` (`IUIAutomation2`) напрямую через `foundation/silicon/comkit` с пакетной предвыборкой `IUIAutomationCacheRequest` | Специфичен для Windows (`UIAutomationCore.dll`); на других ОС компилируется в предсказуемую заглушку |
+
+## Правила
+
+1. **Ноль сторонних зависимостей.** `ctrl` опирается только на стандартную библиотеку Go и [`foundation`](https://github.com/lemon4ksan/foundation) — без рефлексивных мапперов тегов и транзитивных деревьев зависимостей.
+2. **Ноль аллокаций на горячем пути.** Подсчёт визуальной ширины моноширинных строк (`VisibleWidth`), очистка ANSI-кодов, push-итератор `LinesSeq` и подсказки опечаток Левенштейна работают с `0 B/op`.
+3. **Явный ввод-вывод и изолированная стилизация.** Обработчики команд явно принимают `(ctx, args, stdout, stderr)`, а экземпляры `tuikit.Styler` хранят политику цвета локально без мутации глобального состояния.
+4. **Автоматическая деградация в пайпах и CI.** Прогресс-бары и ANSI-последовательности проверяют интерактивность терминала (`ProbeTerminal`) и в неинтерактивных потоках переходят на чистый построчный вывод.
+
+## Структура
+
+- [`ctrl` (корень)](ctrl.go) — Корневой фасад, реэкспортирующий `App`, `Command`, `GroupCommand`, `HubCommand`, `ParseInterspersedFlags`, `Table`, `Box`, `Progress` и статусные бейджи.
+- [`argkit`](argkit) — Движок POSIX-аргументов: свободное перемежение флагов и позиционных параметров (`app -v src/ -o=bin dst/`), склеивание коротких флагов (`-la` $\to$ `-l -a`), прикреплённые значения (`-I*.tmp` $\to$ `-I=*.tmp`), терминатор `--`, нормализация кавычек PowerShell/CMD (`NormalizeArgs`) и нечёткий поиск опечаток.
+- [`tuikit`](tuikit) — Маршрутизатор подкоманд (`App`, `CommandGroup`), детектор возможностей терминала (`ProbeTerminal`), автовыравниваемые таблицы `Table`, рамочные карточки `Box` (`BorderSingle`, `BorderRounded`, `BorderHeavy`), живой индикатор `Progress` со скоростью и ETA, спарклайны (`RenderSparkline`: ` ▂▃▅▆▇█`) и бейджи пайплайнов.
+- [`mcpkit`](mcpkit) — Сервер Model Context Protocol (`2024-11-05`) поверх STDIO и HTTP/SSE с поддержкой Bearer-токенов, TLS, ограничения частоты запросов, конструктором схем (`NewTool`, `Required`, `Min`, `Max`, `Default`) и обобщёнными адаптерами `TypedHandler[T]` / `TextHandler[T]`.
+- [`uiakit`](uiakit) — Движок Windows COM UI Automation (`CUIAutomation8`) на чистом Go без CGO: извлечение деревьев доступности Win32, WPF, WinUI 3, Qt и браузерного `RootWebArea` в компактный Set-of-Marks Markdown-дайджест, а также фоновое выполнение `InvokePattern`, `ValuePattern`, `TogglePattern` и `SelectionItemPattern`.
 
 ## Установка
-
-Требуется Go версии `1.27` или выше.
 
 ```bash
 go get github.com/lemon4ksan/ctrl
 ```
 
-## Быстрый старт
+## Использование
 
-Создание утилиты командной строки с подкомандами, POSIX-флагами и стилизованным терминальным выводом:
+### Маршрутизатор CLI с POSIX-флагами и стилизованным выводом
 
 ```go
 package main
@@ -45,11 +59,10 @@ import (
 	"os"
 
 	"github.com/lemon4ksan/ctrl"
-	"github.com/lemon4ksan/ctrl/tuikit"
 )
 
 func main() {
-	app := ctrl.NewApp("seal", ctrl.Version, "Высокопроизводительная утилита сжатия и архивации",
+	app := ctrl.NewApp("seal", ctrl.Version, "Утилита архивации и сжатия",
 		ctrl.NewCommand("create", "Создать архив из файлов", "seal create [flags] <archive> <files...>",
 			func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -60,13 +73,12 @@ func main() {
 				if err != nil {
 					return err
 				}
-
 				if len(posArgs) < 2 {
-					return fmt.Errorf("требуется указать путь к архиву и файлы")
+					return fmt.Errorf("требуется указать путь к архиву и входные файлы")
 				}
 
-				fmt.Fprintf(stdout, "%s Создание архива %s (уровень %d, verbose=%v)\n",
-					tuikit.BadgePass(), posArgs[0], *level, *verbose)
+				fmt.Fprintf(stdout, "%s Создание %s (level=%d, verbose=%v)\n",
+					ctrl.BadgePass(), posArgs[0], *level, *verbose)
 				return nil
 			},
 			"c", "add",
@@ -74,69 +86,49 @@ func main() {
 	)
 
 	app.CommandGroups = []ctrl.CommandGroup{
-		{
-			Title:    "Основные операции",
-			Commands: []string{"create"},
-		},
+		{Title: "Основные операции", Commands: []string{"create"}},
 	}
 
 	if err := app.Run(context.Background(), os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "%s %v\n", tuikit.BadgeFail(), err)
+		fmt.Fprintf(os.Stderr, "%s %v\n", ctrl.BadgeFail(), err)
 		os.Exit(1)
 	}
 }
 ```
 
-## Сравнение возможностей
+### Декларативный MCP-сервер (`mcpkit`)
 
-| Возможность | Стандартная библиотека (`flag`) | `spf13/cobra` | `ctrl` |
-| :--- | :---: | :---: | :---: |
-| **Внешние зависимости** | **0** | ~15+ транзитивных | **0** |
-| **Перемежающиеся аргументы (Interspersed)** | ✗ (останавливается на 1-м позиционном) | ✓ | **✓ (`argkit`)** |
-| **Склеивание коротких флагов (`-la`)** | ✗ | ✓ | **✓ (`argkit`)** |
-| **Прикреплённые значения (`-I*.tmp`)** | ✗ | ✓ | **✓ (`argkit`)** |
-| **Нечёткие подсказки опечаток** | ✗ | ✓ | **✓ (Левенштейн)** |
-| **Маршрутизация подкоманд** | ✗ | ✓ | **✓ (`tuikit.App`)** |
-| **Автодетект возможностей TTY** | ✗ | ✗ (нужны внешние пакеты) | **✓ (`tuikit.ProbeTerminal`)** |
-| **Поддержка `NO_COLOR` и пайпов** | ✗ | ✗ | **✓ (Встроено)** |
-| **Таблицы, рамки, прогресс-бары** | ✗ | ✗ (требует lipgloss) | **✓ (`tuikit`)** |
+```go
+package main
 
-## Архитектура пакетов
+import (
+	"context"
 
-### 1. [`argkit`](argkit) — Движок аргументов и POSIX-флагов
-- **Свободное перемежение**: Позиционные аргументы и флаги могут идти в любом порядке (`app -v src/ -o=bin dst/`).
-- **Склеивание флагов (Clumping)**: Комбинация `-la` автоматически разворачивается в `-l` и `-a`.
-- **Прикреплённые параметры**: Флаги вида `-I*.tmp` прозрачно транслируются в `-I=*.tmp`.
-- **Терминатор POSIX `--`**: Все аргументы после `--` трактуются строго как позиционные.
-- **Подсказки опечаток**: Автоматический расчёт расстояния Левенштейна на стековых буферах для предложения правильного флага (`"flag provided but not defined: --timout (did you mean: --timeout?)"`).
-- **Нормализация токенов**: Устранение артефактов токенизаторов PowerShell и CMD (`argkit.NormalizeArgs`).
+	"github.com/lemon4ksan/ctrl/mcpkit"
+)
 
-### 2. [`tuikit`](tuikit) — Терминальный интерфейс и маршрутизация CLI
-- **Маршрутизатор подкоманд (`tuikit.App`)**: Поддержка алиасов, группировка справки по секциям, команды по умолчанию.
-- **Детектор терминала (`tuikit.ProbeTerminal`)**: Определение интерактивности TTY, включение Virtual Terminal на Windows 10/11.
-- **Выровненные таблицы (`tuikit.Table`)**: Выравнивание по левому, правому краю или по центру с автоматическим подсчётом ширины колонок.
-- **Рамочные карточки (`tuikit.Box`)**: Рамки с прямыми границами (`BorderSingle`, `BorderRounded`, `BorderHeavy`).
-- **Живой прогресс (`tuikit.Progress`)**: Скорость (MB/s или шт/с), расчёт ETA, автоматическое переключение на периодический лог в CI/пайпах.
-- **Спарклайны (`tuikit.RenderSparkline`)**: Компактные графики трендов (` ▂▃▅▆▇█`).
-- **Бейджи и этапы пайплайна**: Статусные метки (`BadgePass`, `BadgeFail`, `BadgeWarn`, `BadgeActive`) и нумерованные шаги (`RenderStep`).
+type ExecArgs struct {
+	Command   string `json:"command"`
+	TimeoutMS int    `json:"timeout_ms"`
+}
 
-### 3. [`mcpkit`](mcpkit) — Маршрутизатор Model Context Protocol v1.0 и Fluent-конструкторы
-- **Транспорты JSON-RPC 2.0 STDIO и HTTP/SSE**: Полноценный сервер MCP `2024-11-05` с буфером сканера 16 МБ, Bearer-аутентификацией, TLS и ограничителем частоты запросов (Token Bucket).
-- **Декларативный конструктор схем (`mcpkit.NewTool`)**: Создание JSON Schema определений инструментов с функциональными опциями (`mcpkit.Required()`, `mcpkit.Min()`, `mcpkit.Max()`, `mcpkit.MinItems()`, `mcpkit.Default()`) без вложенных `map[string]any`.
-- **Типизированные обработчики**: Обобщённые адаптеры `TypedHandler[T]`, `LenientHandler[T]`, `TextHandler[T]`, `StrictTextHandler[T]` и `NoArgsHandler`.
+func main() {
+	srv := mcpkit.NewServer("agent-tools", "1.0.0")
 
-### 4. [`uiakit`](uiakit) — Windows COM UI Automation (`CUIAutomation8`)
-- **Zero-Allocation COM-вызовы**: Прямые вызовы таблиц виртуальных методов `IUIAutomation2` через `foundation/silicon/comkit` (`Call0`–`Call5`) с пакетной предвыборкой свойств `IUIAutomationCacheRequest`.
-- **Set-of-Marks и DOM**: Извлечение деревьев доступности Win32, WPF, WinUI 3, Qt и браузерного `RootWebArea` в компактный Markdown-дайджест.
-- **Паттерны действий**: Нативное выполнение `IUIAutomationInvokePattern`, `ValuePattern`, `TogglePattern` и `SelectionItemPattern` без перехвата системного курсора.
+	tool := mcpkit.NewTool("exec_command", "Выполнить команду оболочки").
+		String("command", "Командная строка", mcpkit.Required()).
+		Int("timeout_ms", "Таймаут выполнения в миллисекундах", mcpkit.Min(100), mcpkit.Default(5000)).
+		Build()
 
-## Производительность и гарантии памяти
+	srv.RegisterTool(tool, mcpkit.TextHandler(func(ctx context.Context, args ExecArgs) (string, error) {
+		return "выполнено: " + args.Command, nil
+	}))
 
-- **`VisibleWidth`**: Подсчёт визуальной ширины моноширинных символов без аллокаций в куче.
-- **`Levenshtein`**: Использует стек (`[65]int`, `[64]rune`) для типичных флагов $\le 64$ символов — строго **0 аллокаций/оп**.
-- **`LinesSeq`**: Push-итератор строк Go 1.27 без создания промежуточных срезов.
+	_ = srv.ServeStdio(context.Background())
+}
+```
 
-## Разработка и тестирование
+## Тестирование и проверка
 
 ```bash
 # Запуск модульных тестов
@@ -145,13 +137,13 @@ make test
 # Запуск тестов с детектором гонок
 make race
 
+# Запуск бенчмарков и проверка 0 allocs/op
+make bench
+
 # Запуск линтеров
 make lint
-
-# Запуск бенчмарков
-make bench
 ```
 
-## 🧾 Лицензия
+## Лицензия
 
-Лицензировано под **BSD 3-Clause License**. Подробности в файле [LICENSE](LICENSE).
+BSD 3-Clause License. Полный текст приведён в файле [LICENSE](LICENSE).
