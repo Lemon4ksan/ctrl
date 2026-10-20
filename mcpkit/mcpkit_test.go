@@ -137,3 +137,49 @@ func TestHTTPServer_SSEAndRateLimit(t *testing.T) {
 		t.Fatalf("expected 202/200, got %d", msgResp.StatusCode)
 	}
 }
+
+func TestToolBuilderAndTextHandlers(t *testing.T) {
+	def := NewTool("demo_tool", "Demo tool").
+		String("name", "User name", Required()).
+		Enum("mode", "Run mode", []string{"fast", "safe"}, Default("fast")).
+		Int("count", "Iteration count", Min(1)).
+		Number("scale", "Scale factor", Min(0.1), Max(1.0)).
+		Bool("verbose", "Verbose output").
+		StringArray("tags", "Tag list").
+		IntArray("region", "ROI region", MinItems(4), MaxItems(4)).
+		ObjectArray("steps", "Batch steps", func(item *ToolBuilder) {
+			item.String("op", "Operation", Required())
+		}, Required(), MinItems(1)).
+		Build()
+
+	if def.Name != "demo_tool" {
+		t.Fatalf("unexpected tool name: %s", def.Name)
+	}
+	props, ok := def.InputSchema["properties"].(map[string]any)
+	if !ok || len(props) != 8 {
+		t.Fatalf("expected 8 properties, got %+v", def.InputSchema)
+	}
+
+	srv := NewServer(ServerInfo{Name: "builder-test", Version: "1.0.0"}, def)
+	srv.RegisterHandler("demo_tool", TextHandler(func(_ context.Context, args struct {
+		Name string `json:"name"`
+	},
+	) (string, error) {
+		return "hello " + args.Name, nil
+	}))
+	srv.RegisterTool(
+		NewTool("ping_no_args", "No args").Build(),
+		NoArgsHandler(func(_ context.Context) (string, error) {
+			return "pong", nil
+		}),
+	)
+
+	res := srv.CallTool(context.Background(), "demo_tool", json.RawMessage(`{"name":"world"}`))
+	if res.IsError || len(res.Content) == 0 || res.Content[0].Text != "hello world" {
+		t.Fatalf("unexpected TextHandler result: %+v", res)
+	}
+	resNoArgs := srv.CallTool(context.Background(), "ping_no_args", nil)
+	if resNoArgs.IsError || len(resNoArgs.Content) == 0 || resNoArgs.Content[0].Text != "pong" {
+		t.Fatalf("unexpected NoArgsHandler result: %+v", resNoArgs)
+	}
+}

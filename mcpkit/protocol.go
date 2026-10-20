@@ -133,32 +133,6 @@ type MethodHandlerFunc func(ctx context.Context, req JSONRPCRequest) *JSONRPCRes
 // ToolHandlerFunc processes a single `tools/call` invocation with raw JSON arguments.
 type ToolHandlerFunc func(ctx context.Context, rawArgs json.RawMessage) CallToolResult
 
-// TypedHandler adapts a strongly-typed Go function into a ToolHandlerFunc.
-// If rawArgs fails JSON unmarshaling, an ErrorResult is returned automatically.
-func TypedHandler[T any](fn func(ctx context.Context, args T) CallToolResult) ToolHandlerFunc {
-	return func(ctx context.Context, rawArgs json.RawMessage) CallToolResult {
-		var args T
-		if len(rawArgs) > 0 {
-			if err := json.Unmarshal(rawArgs, &args); err != nil {
-				return ErrorResult(err)
-			}
-		}
-		return fn(ctx, args)
-	}
-}
-
-// LenientHandler adapts a strongly-typed Go function into a ToolHandlerFunc that
-// tolerates empty or partially omitted JSON arguments without failing prior to invocation.
-func LenientHandler[T any](fn func(ctx context.Context, args T) CallToolResult) ToolHandlerFunc {
-	return func(ctx context.Context, rawArgs json.RawMessage) CallToolResult {
-		var args T
-		if len(rawArgs) > 0 {
-			_ = json.Unmarshal(rawArgs, &args)
-		}
-		return fn(ctx, args)
-	}
-}
-
 // Server is a universal, domain-agnostic MCP v1.0 JSON-RPC 2.0 router.
 // It implements the `initialize`, `ping`, `tools/list`, and `tools/call` methods,
 // supports custom method registration via [Server.RegisterMethod], and provides
