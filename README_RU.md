@@ -1,8 +1,10 @@
 <div align="center">
 
+<img src="assets/logo.svg" width="120" height="120" alt="ctrl" />
+
 # ctrl
 
-### Фреймворк CLI-приложений и терминальный UI-тулкит для Go без внешних зависимостей
+### Фреймворк CLI, TUI, MCP и UI Automation для Go без внешних зависимостей
 
 _«В терминале задержка и визуальный шум — это состояние по умолчанию. Пусть ctrl станет вашей точной командной поверхностью без единой лишней зависимости»_
 
@@ -14,7 +16,7 @@ _«В терминале задержка и визуальный шум — э�
 [![Ecosystem](https://img.shields.io/badge/ecosystem-foundation-orange?style=flat-square)](https://github.com/lemon4ksan/foundation)
 [![POSIX Semantics](https://img.shields.io/badge/POSIX-Flags%20%26%20Clumping-blueviolet?style=flat-square)](argkit)
 
-**ctrl** — фреймворк командной строки и терминального интерфейса (TUI) для Go с нулевым количеством внешних зависимостей. Предоставляет полноценный POSIX-парсинг флагов (склеивание коротких флагов, прикреплённые значения, перемежающиеся аргументы), маршрутизацию подкоманд с логическими группами, автоопределение возможностей TTY и визуальные компоненты (таблицы, рамки, прогресс-бары, спарклайны, бейджи), реализованные исключительно средствами стандартной библиотеки Go.
+**ctrl** — фреймворк командной строки, терминального интерфейса (TUI), маршрутизатор Model Context Protocol (`mcpkit`) и движок Windows UI Automation (`uiakit`) для Go. Предоставляет полноценный POSIX-парсинг флагов (склеивание коротких флагов, прикреплённые значения, перемежающиеся аргументы), маршрутизацию подкоманд с логическими группами, автоопределение возможностей TTY, визуальные компоненты (таблицы, рамки, прогресс-бары, спарклайны, бейджи), декларативный конструктор MCP-схем и zero-allocation обход COM-дерева доступности.
 
 #### [English](README.md) • Русский • [Концепция архитектуры](docs/CONCEPT.md)
 
@@ -117,6 +119,16 @@ func main() {
 - **Живой прогресс (`tuikit.Progress`)**: Скорость (MB/s или шт/с), расчёт ETA, автоматическое переключение на периодический лог в CI/пайпах.
 - **Спарклайны (`tuikit.RenderSparkline`)**: Компактные графики трендов (` ▂▃▅▆▇█`).
 - **Бейджи и этапы пайплайна**: Статусные метки (`BadgePass`, `BadgeFail`, `BadgeWarn`, `BadgeActive`) и нумерованные шаги (`RenderStep`).
+
+### 3. [`mcpkit`](mcpkit) — Маршрутизатор Model Context Protocol v1.0 и Fluent-конструкторы
+- **Транспорты JSON-RPC 2.0 STDIO и HTTP/SSE**: Полноценный сервер MCP `2024-11-05` с буфером сканера 16 МБ, Bearer-аутентификацией, TLS и ограничителем частоты запросов (Token Bucket).
+- **Декларативный конструктор схем (`mcpkit.NewTool`)**: Создание JSON Schema определений инструментов с функциональными опциями (`mcpkit.Required()`, `mcpkit.Min()`, `mcpkit.Max()`, `mcpkit.MinItems()`, `mcpkit.Default()`) без вложенных `map[string]any`.
+- **Типизированные обработчики**: Обобщённые адаптеры `TypedHandler[T]`, `LenientHandler[T]`, `TextHandler[T]`, `StrictTextHandler[T]` и `NoArgsHandler`.
+
+### 4. [`uiakit`](uiakit) — Windows COM UI Automation (`CUIAutomation8`)
+- **Zero-Allocation COM-вызовы**: Прямые вызовы таблиц виртуальных методов `IUIAutomation2` через `foundation/silicon/comkit` (`Call0`–`Call5`) с пакетной предвыборкой свойств `IUIAutomationCacheRequest`.
+- **Set-of-Marks и DOM**: Извлечение деревьев доступности Win32, WPF, WinUI 3, Qt и браузерного `RootWebArea` в компактный Markdown-дайджест.
+- **Паттерны действий**: Нативное выполнение `IUIAutomationInvokePattern`, `ValuePattern`, `TogglePattern` и `SelectionItemPattern` без перехвата системного курсора.
 
 ## Производительность и гарантии памяти
 

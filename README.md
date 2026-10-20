@@ -1,8 +1,10 @@
 <div align="center">
 
+<img src="assets/logo.svg" width="120" height="120" alt="ctrl" />
+
 # ctrl
 
-### Zero-Dependency CLI Application Framework & Terminal UI Toolkit for Go
+### Zero-Dependency CLI, TUI, MCP & UI Automation Framework for Go
 
 _«In the terminal, latency and clutter are the default — let ctrl be your sharp, zero-dependency command surface»_
 
@@ -14,7 +16,7 @@ _«In the terminal, latency and clutter are the default — let ctrl be your sha
 [![Ecosystem](https://img.shields.io/badge/ecosystem-foundation-orange?style=flat-square)](https://github.com/lemon4ksan/foundation)
 [![POSIX Semantics](https://img.shields.io/badge/POSIX-Flags%20%26%20Clumping-blueviolet?style=flat-square)](argkit)
 
-**ctrl** is a zero-dependency CLI application framework and terminal UI toolkit for Go. It provides full POSIX flag parsing with short-flag clumping and attached values, subcommand routing with command grouping, terminal capability sniffing, and terminal UI styling primitives (tables, boxes, progress bars, sparklines, badges) built entirely on Go standard library primitives.
+**ctrl** is a zero-dependency CLI application framework, terminal UI toolkit, Model Context Protocol (`mcpkit`) router, and Windows UI Automation (`uiakit`) engine for Go. It provides full POSIX flag parsing with short-flag clumping and attached values, subcommand routing with command grouping, terminal capability sniffing, terminal UI styling primitives (tables, boxes, progress bars, sparklines, badges), fluent MCP v1.0 tool builders, and zero-allocation COM accessibility traversal.
 
 #### English • [Русский](README_RU.md) • [Architecture Concept](docs/CONCEPT.md)
 
@@ -117,6 +119,16 @@ func main() {
 - **Live Progress & Throughput (`tuikit.Progress`)**: Real-time progress bars with throughput rate (MB/s or items/s) and ETA calculations. Gracefully falls back to periodic summary logs in CI/CD or piped output.
 - **Sparklines & Trend Graphs (`tuikit.RenderSparkline`)**: Renders inline trend graphs from floating-point sequences (` ▂▃▅▆▇█`).
 - **Badges & Pipeline Steps**: Universal status tags (`BadgePass`, `BadgeFail`, `BadgeWarn`, `BadgeActive`) and numbered pipeline stages (`RenderStep`).
+
+### 3. [`mcpkit`](mcpkit) — Model Context Protocol v1.0 Router & Fluent Builders
+- **JSON-RPC 2.0 STDIO & HTTP/SSE Transports**: Full MCP `2024-11-05` server with 16 MiB scanner buffers, Bearer auth, TLS termination, and token-bucket rate limiting.
+- **Fluent Schema Builder (`mcpkit.NewTool`)**: Construct JSON Schema tool definitions with functional `PropOption` modifiers (`mcpkit.Required()`, `mcpkit.Min()`, `mcpkit.Max()`, `mcpkit.MinItems()`, `mcpkit.Default()`) and zero nested `map[string]any` boilerplate.
+- **Typed & Text Handlers**: Generic `TypedHandler[T]`, `LenientHandler[T]`, `TextHandler[T]`, `StrictTextHandler[T]`, and `NoArgsHandler` adapters.
+
+### 4. [`uiakit`](uiakit) — Windows COM UI Automation (`CUIAutomation8`)
+- **Zero-Allocation COM Traversal**: Direct `IUIAutomation2` vtable invocation powered by `foundation/silicon/comkit` (`Call0`–`Call5`) with `IUIAutomationCacheRequest` bulk property prefetching.
+- **Set-of-Marks & DOM Extraction**: Enumerates Win32, WPF, WinUI 3, Qt, and Chromium/Electron `RootWebArea` accessibility trees into compact Markdown digests.
+- **Action Patterns**: Native `IUIAutomationInvokePattern`, `ValuePattern`, `TogglePattern`, and `SelectionItemPattern` execution without cursor theft.
 
 ## Performance & Zero-Allocation Guarantees
 
