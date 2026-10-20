@@ -8,7 +8,9 @@ package uiakit
 
 import "errors"
 
-var errNoNativeBackend = errors.New("uiakit: no native accessibility provider is active; register a custom Provider via SetDefaultProvider")
+var errNoNativeBackend = errors.New(
+	"uiakit: no native accessibility provider is active; register a custom Provider via SetDefaultProvider",
+)
 
 type fallbackProvider struct{}
 
